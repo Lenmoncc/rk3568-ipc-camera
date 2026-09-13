@@ -1,0 +1,32 @@
+[DEBUG] open /dev/video0; request NV12 1280x720; frames=1; output=frame_1280x720_nv12.yuv
+[DEBUG] VIDIOC_QUERYCAP OK
+[DEBUG] driver=rkisp_v5 card=rkisp_mainpath caps=0x04201000
+[DEBUG] VIDIOC_S_FMT OK
+[DEBUG] actual: 1280x720 fourcc=NV12 planes=1 stride=1280 sizeimage=1382400
+[DEBUG] VIDIOC_REQBUFS OK
+[DEBUG] buffers requested=4 granted=4
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=0 offset=0 length=1382400 addr=0x7fbeced000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=1 offset=1384448 length=1382400 addr=0x7fbeb9b000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=2 offset=2768896 length=1382400 addr=0x7fbea49000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=3 offset=4153344 length=1382400 addr=0x7fbe8f7000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_STREAMON OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=1/1 index=0 sequence=0 timestamp=4541.512718 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=1 frame_bytes=1382400 total_bytes=1382400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] cleanup begin
+[DEBUG] VIDIOC_STREAMOFF OK
+[DEBUG] munmap index=0 OK
+[DEBUG] munmap index=1 OK
+[DEBUG] munmap index=2 OK
+[DEBUG] munmap index=3 OK
+[DEBUG] VIDIOC_REQBUFS OK
+[DEBUG] DONE: saved=1/1 frames, output=frame_1280x720_nv12.yuv

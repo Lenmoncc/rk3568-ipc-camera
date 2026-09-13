@@ -1,0 +1,268 @@
+[DEBUG] open /dev/video0; request NV12 1280x720; frames=60; output=clip_1280x720_nv12.yuv
+[DEBUG] VIDIOC_QUERYCAP OK
+[DEBUG] driver=rkisp_v5 card=rkisp_mainpath caps=0x04201000
+[DEBUG] VIDIOC_S_FMT OK
+[DEBUG] actual: 1280x720 fourcc=NV12 planes=1 stride=1280 sizeimage=1382400
+[DEBUG] VIDIOC_REQBUFS OK
+[DEBUG] buffers requested=4 granted=4
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=0 offset=0 length=1382400 addr=0x7f9663b000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=1 offset=1384448 length=1382400 addr=0x7f964e9000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=2 offset=2768896 length=1382400 addr=0x7f96397000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_QUERYBUF OK
+[DEBUG] mmap index=3 offset=4153344 length=1382400 addr=0x7f96245000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_STREAMON OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=1/60 index=0 sequence=0 timestamp=4603.580050 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=1 frame_bytes=1382400 total_bytes=1382400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=2/60 index=1 sequence=1 timestamp=4603.620296 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=2 frame_bytes=1382400 total_bytes=2764800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=3/60 index=2 sequence=2 timestamp=4603.660352 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=3 frame_bytes=1382400 total_bytes=4147200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=4/60 index=3 sequence=3 timestamp=4603.700431 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=4 frame_bytes=1382400 total_bytes=5529600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=5/60 index=0 sequence=4 timestamp=4603.740265 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=5 frame_bytes=1382400 total_bytes=6912000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=6/60 index=1 sequence=5 timestamp=4603.779931 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=6 frame_bytes=1382400 total_bytes=8294400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=7/60 index=2 sequence=6 timestamp=4603.820310 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=7 frame_bytes=1382400 total_bytes=9676800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=8/60 index=3 sequence=7 timestamp=4603.859933 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=8 frame_bytes=1382400 total_bytes=11059200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=9/60 index=0 sequence=8 timestamp=4603.900307 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=9 frame_bytes=1382400 total_bytes=12441600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=10/60 index=1 sequence=9 timestamp=4603.940336 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=10 frame_bytes=1382400 total_bytes=13824000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=11/60 index=2 sequence=10 timestamp=4603.980339 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=11 frame_bytes=1382400 total_bytes=15206400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=12/60 index=3 sequence=11 timestamp=4604.020339 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=12 frame_bytes=1382400 total_bytes=16588800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=13/60 index=0 sequence=12 timestamp=4604.060336 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=13 frame_bytes=1382400 total_bytes=17971200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=14/60 index=1 sequence=13 timestamp=4604.100339 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=14 frame_bytes=1382400 total_bytes=19353600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=15/60 index=2 sequence=14 timestamp=4604.140301 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=15 frame_bytes=1382400 total_bytes=20736000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=16/60 index=3 sequence=15 timestamp=4604.180301 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=16 frame_bytes=1382400 total_bytes=22118400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=17/60 index=0 sequence=16 timestamp=4604.220231 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=17 frame_bytes=1382400 total_bytes=23500800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=18/60 index=1 sequence=17 timestamp=4604.260302 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=18 frame_bytes=1382400 total_bytes=24883200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=19/60 index=2 sequence=18 timestamp=4604.300321 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=19 frame_bytes=1382400 total_bytes=26265600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=20/60 index=3 sequence=19 timestamp=4604.340320 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=20 frame_bytes=1382400 total_bytes=27648000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=21/60 index=0 sequence=20 timestamp=4604.380238 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=21 frame_bytes=1382400 total_bytes=29030400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=22/60 index=1 sequence=21 timestamp=4604.420232 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=22 frame_bytes=1382400 total_bytes=30412800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=23/60 index=2 sequence=22 timestamp=4604.460400 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=23 frame_bytes=1382400 total_bytes=31795200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=24/60 index=3 sequence=23 timestamp=4604.500404 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=24 frame_bytes=1382400 total_bytes=33177600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=25/60 index=0 sequence=24 timestamp=4604.540412 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=25 frame_bytes=1382400 total_bytes=34560000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=26/60 index=1 sequence=25 timestamp=4604.579937 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=26 frame_bytes=1382400 total_bytes=35942400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=27/60 index=2 sequence=26 timestamp=4604.620408 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=27 frame_bytes=1382400 total_bytes=37324800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=28/60 index=3 sequence=27 timestamp=4604.659941 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=28 frame_bytes=1382400 total_bytes=38707200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=29/60 index=0 sequence=28 timestamp=4604.700405 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=29 frame_bytes=1382400 total_bytes=40089600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=30/60 index=1 sequence=29 timestamp=4604.740340 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=30 frame_bytes=1382400 total_bytes=41472000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=31/60 index=2 sequence=30 timestamp=4604.780341 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=31 frame_bytes=1382400 total_bytes=42854400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=32/60 index=3 sequence=31 timestamp=4604.820409 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=32 frame_bytes=1382400 total_bytes=44236800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=33/60 index=0 sequence=32 timestamp=4604.860399 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=33 frame_bytes=1382400 total_bytes=45619200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=34/60 index=1 sequence=33 timestamp=4604.900398 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=34 frame_bytes=1382400 total_bytes=47001600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=35/60 index=2 sequence=34 timestamp=4604.939934 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=35 frame_bytes=1382400 total_bytes=48384000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=36/60 index=3 sequence=35 timestamp=4604.979934 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=36 frame_bytes=1382400 total_bytes=49766400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=37/60 index=0 sequence=36 timestamp=4605.020334 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=37 frame_bytes=1382400 total_bytes=51148800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=38/60 index=1 sequence=37 timestamp=4605.060399 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=38 frame_bytes=1382400 total_bytes=52531200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=39/60 index=2 sequence=38 timestamp=4605.100310 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=39 frame_bytes=1382400 total_bytes=53913600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=40/60 index=3 sequence=39 timestamp=4605.139937 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=40 frame_bytes=1382400 total_bytes=55296000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=41/60 index=0 sequence=40 timestamp=4605.179933 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=41 frame_bytes=1382400 total_bytes=56678400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=42/60 index=1 sequence=41 timestamp=4605.220334 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=42 frame_bytes=1382400 total_bytes=58060800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=43/60 index=2 sequence=42 timestamp=4605.259932 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=43 frame_bytes=1382400 total_bytes=59443200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=44/60 index=3 sequence=43 timestamp=4605.300244 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=44 frame_bytes=1382400 total_bytes=60825600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=45/60 index=0 sequence=44 timestamp=4605.340188 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=45 frame_bytes=1382400 total_bytes=62208000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=46/60 index=1 sequence=45 timestamp=4605.380329 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=46 frame_bytes=1382400 total_bytes=63590400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=47/60 index=2 sequence=46 timestamp=4605.420397 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=47 frame_bytes=1382400 total_bytes=64972800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=48/60 index=3 sequence=47 timestamp=4605.460401 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=48 frame_bytes=1382400 total_bytes=66355200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=49/60 index=0 sequence=48 timestamp=4605.500282 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=49 frame_bytes=1382400 total_bytes=67737600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=50/60 index=1 sequence=49 timestamp=4605.540225 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=50 frame_bytes=1382400 total_bytes=69120000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=51/60 index=2 sequence=50 timestamp=4605.580213 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=51 frame_bytes=1382400 total_bytes=70502400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=52/60 index=3 sequence=51 timestamp=4605.620213 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=52 frame_bytes=1382400 total_bytes=71884800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=53/60 index=0 sequence=52 timestamp=4605.660212 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=53 frame_bytes=1382400 total_bytes=73267200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=54/60 index=1 sequence=53 timestamp=4605.700214 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=54 frame_bytes=1382400 total_bytes=74649600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=55/60 index=2 sequence=54 timestamp=4605.739932 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=55 frame_bytes=1382400 total_bytes=76032000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=56/60 index=3 sequence=55 timestamp=4605.779933 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=56 frame_bytes=1382400 total_bytes=77414400
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=57/60 index=0 sequence=56 timestamp=4605.820222 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=57 frame_bytes=1382400 total_bytes=78796800
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=58/60 index=1 sequence=57 timestamp=4605.859936 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=58 frame_bytes=1382400 total_bytes=80179200
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=59/60 index=2 sequence=58 timestamp=4605.899933 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=59 frame_bytes=1382400 total_bytes=81561600
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] VIDIOC_DQBUF OK
+[DEBUG] frame=60/60 index=3 sequence=59 timestamp=4605.939932 bytesused=1382400 data_offset=0 flags=0x2001
+[DEBUG] saved=60 frame_bytes=1382400 total_bytes=82944000
+[DEBUG] VIDIOC_QBUF OK
+[DEBUG] cleanup begin
+[DEBUG] VIDIOC_STREAMOFF OK
+[DEBUG] munmap index=0 OK
+[DEBUG] munmap index=1 OK
+[DEBUG] munmap index=2 OK
+[DEBUG] munmap index=3 OK
+[DEBUG] VIDIOC_REQBUFS OK
+[DEBUG] DONE: saved=60/60 frames, output=clip_1280x720_nv12.yuv
