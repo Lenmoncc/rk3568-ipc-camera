@@ -1,0 +1,14 @@
+# 只忽略主工程产物，不影响现有 demo 目录中的历史文件。
+/build/
+/bin/
+*.o
+*.d
+*.log
+*.yuv
+*.nv12
+*.pcm
+*.wav
+*.aac
+*.h264
+*.mp4
+*.flv

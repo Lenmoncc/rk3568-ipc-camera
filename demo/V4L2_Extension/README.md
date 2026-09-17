@@ -1,6 +1,6 @@
 # V4L2 格式转换与实时预览
 
-本实验基于正点原子 RK3568 开发板，完成以下拓展任务：
+本实验基于正点原子 RK3568 开发板，完成以下拓展任务：开发板已具备 libv4lconvert、OpenCV 4.5.4 及 Qt Wayland 插件，Weston 显示服务正常运行。
 
 * **任务 1：** 手写 V4L2 采集 → libv4lconvert 格式转换 → 保存 BMP。
 * **任务 2：** 手写 V4L2 采集 → libv4lconvert 格式转换 → OpenCV 实时显示。
