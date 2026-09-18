@@ -43,6 +43,7 @@ RKISP 的 G_FMT 返回 `FIELD_NONE(1)`，DQBUF 返回 `FIELD_ANY(0)`，兼容分
 - 先用除法检查源布局可读范围，避免 stride/offset 的乘加溢出和越界读取。
 - 同时最多一帧在途；收到完整帧末输出才改写 DMA 内存。即使输出意外分片，也收齐 EOI。
 - 使用 MPP 非阻塞输入模式：提交成功后帧描述由 MPP 持有，通过输出包元数据 `KEY_INPUT_FRAME` 归还，调用者取回后销毁。尚未提交的帧由应用清理；尚在 MPP 内部的帧由 `mpp_destroy` 回收。
+- 空 EOS 不挂图像缓冲，允许没有归还元数据；只在所有图像已完成编码时接受。未归还的描述由库管理，应用不能凭借旧指针重复释放；普通图像帧依然要求显式归还后才允许复用 DMA 缓冲。
 - `IpcH264Sink` 只在回调内借用编码数据；文件同步写入后立即释放 MPP 包。未来异步输出必须复制或建立安全引用，不能保留本回调的裸指针。
 - 发生超时或硬件错误，不再复用输入缓冲。先销毁 MPP，再释放应用持有的 DMA 引用。
 
@@ -163,13 +164,13 @@ echo $?
 sh /root/rk3568_ipc_camera/play_h264.sh /root/rk3568_ipc_camera/video_720p_25fps.h264
 ```
 
-脚本为此次播放设置 `/run/wayland-0`、Wayland 显示后端与 SDL 软件渲染，循环全屏播放，无需每次手动 export。
-图像显示在开发板屏幕，终端只显示日志。按播放窗口 `q` 或启动终端 `Ctrl+C` 退出。
+脚本为此次播放设置 `/run/wayland-0`、Wayland 显示后端与 SDL 软件渲染，全屏播放一次并自动退出，无需每次手动 export。
+图像显示在开发板屏幕，终端只显示日志。按播放窗口 `q` 或启动终端 `Ctrl+C` 可提前退出；再次观看请重新运行脚本。
 
 不使用脚本时，等效单行命令为：
 
 ```bash
-XDG_RUNTIME_DIR=/run WAYLAND_DISPLAY=wayland-0 SDL_VIDEODRIVER=wayland SDL_RENDER_DRIVER=software ffplay -f h264 -i /root/rk3568_ipc_camera/video_720p_25fps.h264 -loop 0 -fs -an
+XDG_RUNTIME_DIR=/run WAYLAND_DISPLAY=wayland-0 SDL_VIDEODRIVER=wayland SDL_RENDER_DRIVER=software ffplay -f h264 -i /root/rk3568_ipc_camera/video_720p_25fps.h264 -autoexit -fs -an
 ```
 
 H.264 自带图像参数，不再指定 `-pixel_format nv12` 或 `-video_size`。
@@ -208,11 +209,12 @@ make host-encoder-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 ```
 
 - 配置、日志、队列和原有 42 个采集模拟场景回归。
-- 53 个编码集成场景：正常/暂忙/无包重试、分片、RKISP field 兼容、原始帧同时保存、
+- 59 个编码集成场景：正常/暂忙/无包重试、分片、RKISP field 兼容、原始帧同时保存、
   初始化各阶段失败、提交失败与超时、输出失败与超时、EOS 超时、PTS 错误、空输出、
-  输入帧归还检查、写入/关闭错误、线程启动失败、路径保护、慢消费丢帧、命令行校验、SIGINT/SIGTERM。
+  输入帧归还检查、空 EOS 无元数据/无归还帧、异常 EOS 载荷/提前 EOS 拒绝、
+  写入/关闭错误、线程启动失败、路径保护、慢消费丢帧、命令行校验、SIGINT/SIGTERM。
 - 编码 API 边界：独立 Y/UV 步长、末行无 padding、尺寸截断、stride/offset 溢出、格式/类型错误、
-  无效/重复 PTS、EOS 幂等、EOS 后拒绝送帧，以及重复释放安全。
+  无效/重复 PTS、EOS 幂等、零图像结束、EOS 后拒绝送帧，以及重复释放安全。
 - 模拟器在取包时才读取 DMA 数据，并逐字节比较像素，检查提交后数据未被改写。
 - 每个模拟子进程退出时检查设备和 MPP 资源归零；ASan/UBSan 检查地址访问及未定义行为。
   上述命令关闭 LeakSanitizer，不据此宣称已完成真实库或硬件泄漏检测。
@@ -223,11 +225,12 @@ make host-encoder-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 
 实现已接入正式工程，`demo/`、`shell/` 不变，新增/修改函数具备功能注释。
 本次主机验证已通过：54 个配置/CLI 场景、400 条并发日志及过滤、失败配置保留、
-9 个队列场景、42 个采集集成场景、53 个编码集成场景及编码 API 边界检查。
+9 个队列场景、42 个采集集成场景、59 个编码集成场景及编码 API 边界检查。
 编码集成和 API 边界检查在 ASan/UBSan 下也已通过（LeakSanitizer 关闭）。
 回放脚本通过 shell 语法、参数/环境传递、缺失文件/显示会话的检查；本机不具备实际显示会话。
 当前环境没有用户 SDK 工具链和 RK3568 硬件，因此未在此处执行目标交叉编译或真实硬编码。
-上一阶段原始采集及 NV12 回放已由用户确认通过；**本阶段硬件编码、实际码率、CPU 占用及 H.264 板端回放尚待执行上述步骤确认**。
+上一阶段原始采集及 NV12 回放已由用户确认通过。本阶段用户日志已确认 300 帧硬编码及 H.264 板端正常播放；
+**原日志仍有 EOS 收尾错误，本次修复尚待板端重测，不能将可播放等同于整条流水线正常退出。** CPU 占用和长期稳定性尚未测量。
 
 在 Ubuntu 工程目录暂存本阶段文件：
 
@@ -296,4 +299,58 @@ sh ./play_h264.sh /root/rk3568_ipc_camera/video_720p_25fps_fixed.h264
 ```bash
 git add src/video_encoder.c tests/mock_mpp.c tests/test_encoder.py README.md docs/04_MPP硬编码与板端回放说明.md
 git commit -m "fix(video): 兼容旧版MPP帧率分母配置键并补充回归测试"
+```
+
+## 七、300 帧板端回放结果与 EOS 收尾修复
+
+### 已确认结果
+
+用户再次编译运行的日志显示 `captured=enqueued=consumed=submitted=encoded=300`，
+`invalid=0`、无队列丢帧、`capture_fps=25.000`，输出 2,777,479 字节、10 个关键帧。
+ffplay 识别为 H.264 Constrained Baseline、1280×720、25fps，用户确认开发板屏幕正常播放。
+`saved=0` 只表示未额外保存 NV12 原始帧，与 `.h264` 已写入的字节数不冲突。
+
+但同一日志有 `EOS drain failed: Bad message` 和 `capture pipeline failed: Bad message`。
+这证明图像编码已完成，结束处理仍未通过；原日志的 `eos=1` 在所有检查完成前赋值，不能单独作为成功依据。
+
+### 本次修复
+
+1. 根据代码路径与日志定位到空 EOS 缺少 `KEY_INPUT_FRAME` 的归还检查；主机模拟已复现同样报错。
+   现在仅当收到零载荷 EOS、全部图像已输出时接受该结束包。图像帧缺少归还元数据、提前 EOS、
+   EOS 携带意外数据及 EOS 超时仍然失败，`stats.eos` 在排空检查通过后才设为真。
+2. 输入帧只在元数据明确归还时释放；空 EOS 没有归还指针时由库管理，应用不额外释放别名指针。
+   模拟覆盖库内立即回收和上下文销毁时回收；真实 BSP 内部资源行为仍需板端重复运行观察。
+3. 播放日志中大量 `error while seeking` 与旧脚本的裸流循环定位相符。
+   脚本删除 `-loop 0`，使用 `-autoexit` 单次全屏播放，播完退出，继续沿用板端 Wayland/SDL 环境。
+   `Duration: N/A` 是裸流常见表现；播放器的软件色彩转换提示不能据此判定 MPP 编码失败。
+4. 修改的函数保留功能注释，补充 EOS 所有权解释；`demo/`、`shell/` 内容不变。
+
+### 验证与板端重测
+
+主机全套回归通过，其中编码集成增加至 59 项；编码集成及 API 边界也通过 ASan/UBSan
+（关闭 LeakSanitizer）。包含零图像结束、重复 finish、缺少 EOS 元数据时的 SIGINT/SIGTERM 排空。
+播放脚本已检查语法、带空格文件名、参数/环境传递及输入错误，未在本机执行实际屏幕播放。
+本次收尾修复尚待板端复测，不能把上述模拟结果写成硬件验收通过。
+
+Ubuntu 工程目录执行 `sh scripts/build.sh -B`，重新上传 `bin/ipc_camera` 和 `scripts/play_h264.sh`。
+开发板每条命令单独执行，`echo $?` 紧跟采集命令；新路径须不存在：
+
+```bash
+cd /root/rk3568_ipc_camera
+chmod +x ipc_camera
+./ipc_camera --config ipc.conf --encode --frames 300 --encode-fps 25 --output /root/rk3568_ipc_camera/video_720p_eos_fixed.h264
+echo $?
+sh ./play_h264.sh /root/rk3568_ipc_camera/video_720p_eos_fixed.h264
+```
+
+预期 `submitted=encoded=300`、`eos=1`、退出码 0，打印
+`capture complete; queue drained and resources released`，无 `EOS drain failed`。
+若出现一次 `empty EOS without KEY_INPUT_FRAME; all image frames drained`，表示兼容分支生效。
+播放应正常结束、不再因自动循环刷 seek 错误。另按 4.4 节验证 Ctrl+C 返回 130 和再次录制。
+
+板端确认后，如果前面编码阶段已提交，本次修复可单独提交：
+
+```bash
+git add src/video_encoder.c scripts/play_h264.sh tests/mock_mpp.c tests/test_encoder.py tests/test_encoder_api.c README.md docs/04_MPP硬编码与板端回放说明.md
+git commit -m "fix(video): 兼容MPP空EOS回包并修复板端裸流回放收尾"
 ```

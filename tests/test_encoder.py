@@ -66,7 +66,8 @@ with tempfile.TemporaryDirectory(prefix='ipc-encoder-') as temporary:
     config = directory / 'ipc.conf'
     base = (root / 'configs/ipc.conf').read_text().replace('/dev/video0', '/dev/mock-video')
     config.write_text(base)
-    for case in ['normal', 'legacy-fps-keys', 'put-busy-once', 'get-empty-once', 'get-nok-once', 'partition']:
+    for case in ['normal', 'legacy-fps-keys', 'eos-no-meta', 'eos-no-frame',
+                 'put-busy-once', 'get-empty-once', 'get-nok-once', 'partition']:
         result, output = run_case(case)
         check_payload(output, case == 'partition')
     run_case(driver='rkisp-field-any')
@@ -76,8 +77,11 @@ with tempfile.TemporaryDirectory(prefix='ipc-encoder-') as temporary:
                  'cfg-key-fail', 'set-cfg-fail', 'header-mode-fail', 'group-fail', 'buffer-fail',
                  'header-init-fail', 'header-fail', 'empty-header', 'frame-init-fail', 'put-fail',
                  'put-timeout', 'get-fail', 'get-timeout', 'eos-timeout', 'wrong-pts',
-                 'empty-packet', 'missing-returned-frame', 'packet-write-fail', 'destroy-fail']:
-        run_case(case, expected=1)
+                 'empty-packet', 'missing-returned-frame', 'eos-with-data', 'unexpected-eos',
+                 'packet-write-fail', 'destroy-fail']:
+        result, _ = run_case(case, expected=1)
+        if case in ['eos-timeout', 'eos-with-data', 'unexpected-eos', 'missing-returned-frame']:
+            assert counters(result.stderr, 'encoder')['eos'] == 0
     for driver in ['write-fail', 'flush-fail', 'streamon-fail', 'consumer-thread-fail', 'producer-thread-fail', 'poll-error']:
         run_case(expected=1, driver=driver)
     # 文件覆盖、缺失目录、两个输出路径相同：失败但不可破坏已有内容。
@@ -105,11 +109,13 @@ with tempfile.TemporaryDirectory(prefix='ipc-encoder-') as temporary:
         assert process.returncode == 2 and 'first DQBUF' not in process.stderr, process.stderr
         count += 1
     # SIGINT/SIGTERM 都在首帧已消费之后发送，必须排空队列与 MPP 并返回 130。
-    for signum in [signal.SIGINT, signal.SIGTERM]:
-        target = directory / f'interrupt-{signum}.h264'
+    for signum, mpp_case in [(sig, case) for sig in [signal.SIGINT, signal.SIGTERM]
+                             for case in ['normal', 'eos-no-meta']]:
+        target = directory / f'interrupt-{signum}-{mpp_case}.h264'
         process = subprocess.Popen([str(binary), '-c', str(config), '--encode', '--output', str(target),
                                     '--encode-fps', '25', '--frames', '0'], stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.PIPE, env=dict(os.environ, IPC_MOCK_CASE='normal'))
+                                   stderr=subprocess.PIPE, env=dict(os.environ, IPC_MOCK_CASE='normal',
+                                                                  IPC_MOCK_MPP_CASE=mpp_case))
         selector = selectors.DefaultSelector()
         selector.register(process.stderr, selectors.EVENT_READ)
         data = b''

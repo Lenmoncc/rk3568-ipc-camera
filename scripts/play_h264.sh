@@ -1,5 +1,5 @@
 #!/bin/sh
-# 功能：在开发板 Weston/Wayland 屏幕上循环播放已保存的 H.264 文件。
+# 功能：在开发板 Weston/Wayland 屏幕上全屏播放已保存的 H.264 文件，播完退出。
 # 使用 sh 调用即可；环境只作用于本脚本及 ffplay，不修改当前终端或系统配置。
 set -eu
 if [ "$#" -ne 1 ]; then
@@ -25,5 +25,6 @@ if [ "$SDL_VIDEODRIVER" = wayland ] && [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY
     exit 1
 fi
 # H.264 的 SPS 携带图像参数；无需再指定 NV12 像素格式或分辨率。
-# 0 表示无限循环；Ctrl+C（启动终端）或 q（播放窗口）退出。
-exec ffplay -f h264 -i "$VIDEO_PATH" -loop 0 -fs -an
+# 裸流在本板 ffplay 上循环 seek 会失败，故单次播放并在 EOF 自动退出。
+# 再看一遍请重新运行脚本；Ctrl+C（启动终端）或 q（播放窗口）可提前退出。
+exec ffplay -f h264 -i "$VIDEO_PATH" -autoexit -fs -an

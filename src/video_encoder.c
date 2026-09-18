@@ -34,7 +34,7 @@ struct IpcVideoEncoder {
     MppEncCfg cfg;
     MppBufferGroup group;
     MppBuffer input;
-    MppFrame pending; /**< 仅持有未提交帧；put 成功后置空，由 MPP 经输出元数据归还。 */
+    MppFrame pending; /**< 仅持有未提交帧；put 成功后置空；空 EOS 可由库内部回收。 */
     unsigned int width, height, stride, vertical_stride;
     size_t input_size;
     IpcH264Sink sink;
@@ -137,7 +137,8 @@ static int submit_frame(IpcVideoEncoder *encoder)
         MPP_RET ret = encoder->api->encode_put_frame(encoder->ctx, encoder->pending);
         int result;
         if (ret == MPP_OK) {
-            /* 非阻塞 MPP 接管帧描述，随后经输出包 KEY_INPUT_FRAME 归还。
+            /* 非阻塞 MPP 接管帧描述，普通图像帧经 KEY_INPUT_FRAME 归还。
+             * 空 EOS 的归还元数据可缺省，不能保留别名指针再次释放。
              * 尚未取到输出时的异常清理交给 mpp_destroy，不能再自行 deinit。 */
             encoder->pending = NULL;
             return 0;
@@ -164,7 +165,7 @@ static bool release_output(MppPacket *packet)
     return found;
 }
 
-/** @brief 收齐一帧或 EOS，逐包同步交付并检查输出 PTS，分片未结束不复用输入。 */
+/** @brief 收齐图像或空 EOS；校验 PTS/帧归还，兼容空 EOS 缺少归还元数据。 */
 static int receive_output(IpcVideoEncoder *encoder, bool finishing, int64_t pts)
 {
     int64_t start = ipc_monotonic_us();
@@ -198,7 +199,6 @@ static int receive_output(IpcVideoEncoder *encoder, bool finishing, int64_t pts)
                 if (output.size) { ++encoder->stats.packets; had_data = true; }
                 if (finishing) {
                     done = output.eos;
-                    encoder->stats.eos = done;
                 } else if (output.frame_end) {
                     if (!had_data) result = -EBADMSG;
                     else {
@@ -212,7 +212,19 @@ static int receive_output(IpcVideoEncoder *encoder, bool finishing, int64_t pts)
             }
             frame_returned = release_output(&packet) || frame_returned;
             if (result < 0) return result;
-            if (done) return frame_returned ? 0 : -EBADMSG;
+            if (done) {
+                if (!finishing) return frame_returned ? 0 : -EBADMSG;
+                /* 只有空 EOS 且所有图像已输出才完成排空。普通图像仍必须归还
+                 * 输入帧，确保 DMA 内存可复用；此时不再提交或改写图像。
+                 * 部分 BSP 的空 EOS 不携带 KEY_INPUT_FRAME，帧描述由库管理。
+                 * 没有明确归还所有权时不自行 deinit，避免与库内部回收重复释放。 */
+                if (encoder->stats.submitted != encoder->stats.encoded) return -EBADMSG;
+                if (!frame_returned)
+                    ipc_log_write(IPC_LOG_INFO, "encoder",
+                                  "empty EOS without KEY_INPUT_FRAME; all image frames drained");
+                encoder->stats.eos = true;
+                return 0;
+            }
         }
         result = wait_retry(start + ENCODER_WAIT_US);
         if (result < 0) return result;

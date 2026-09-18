@@ -128,7 +128,8 @@ static MPP_RET mock_get(MppCtx opaque, MppPacket *output)
     packet->size = 32;
     packet->data = calloc(1, packet->size); MUST(packet->data);
     packet->length = input->eos || is_case("empty-packet") ? 0 : packet->size;
-    packet->eos = input->eos;
+    if (input->eos && is_case("eos-with-data")) packet->length = packet->size;
+    packet->eos = input->eos || is_case("unexpected-eos");
     packet->pts = input->pts + (is_case("wrong-pts") ? 1 : 0);
     packet->partition = is_case("partition");
     packet->eoi = !packet->partition || input->eos || ctx->part == 1;
@@ -137,7 +138,14 @@ static MPP_RET mock_get(MppCtx opaque, MppPacket *output)
     packet->data[4] = packet->intra ? 0x65 : 0x41;
     packet->data[5] = input->eos ? 0 : input->buffer->data[0];
     memcpy(packet->data + 8, &input->pts, sizeof(input->pts));
-    if (packet->eoi && !is_case("missing-returned-frame")) {
+    /* 空 EOS 可不带输入帧：分别模拟库内部立即释放、保留到 destroy 两种生命周期。
+     * 普通图像帧缺少归还元数据仍是错误，不能被 EOS 兼容分支放行。 */
+    if (input->eos && is_case("eos-no-meta")) {
+        MppFrame finished = input;
+        ctx->inflight = NULL;
+        mpp_frame_deinit(&finished);
+    } else if (packet->eoi && !is_case("missing-returned-frame") &&
+               !(input->eos && is_case("eos-no-frame"))) {
         packet->returned = input;
         ctx->inflight = NULL;
     }
@@ -336,8 +344,11 @@ RK_U32 mpp_packet_get_eos(const MppPacket packet) { return ((Packet *)packet)->e
 RK_U32 mpp_packet_is_partition(const MppPacket packet) { return ((Packet *)packet)->partition; }
 /** @brief 取得帧末分片标记。 */
 RK_U32 mpp_packet_is_eoi(const MppPacket packet) { return ((Packet *)packet)->eoi; }
-/** @brief 模拟输出包始终具有元数据。 */
-RK_S32 mpp_packet_has_meta(const MppPacket packet) { (void)packet; return 1; }
+/** @brief 模拟普通输出元数据，以及部分 BSP 空 EOS 不带元数据的行为。 */
+RK_S32 mpp_packet_has_meta(const MppPacket packet)
+{
+    return !(((Packet *)packet)->eos && is_case("eos-no-meta"));
+}
 /** @brief 返回包自身作为模拟元数据对象。 */
 MppMeta mpp_packet_get_meta(const MppPacket packet) { return packet; }
 /** @brief 从输出元数据中读取关键帧标记。 */

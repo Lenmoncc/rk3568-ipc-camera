@@ -80,6 +80,19 @@ int main(int argc, char **argv)
     MUST(ipc_video_encoder_send(encoder, &frame) == 0);
     MUST(ipc_video_encoder_send(encoder, &frame) == -EINVAL); /* 拒绝重复时间戳。 */
     MUST(ipc_video_encoder_deinit(&encoder) == 0);
+    /* 启动后尚无图像也允许结束；覆盖空 EOS 两种库内回收方式和重复 finish。
+     * 资源归零由模拟器退出钩子检查，不能仅依据返回码声称没有泄漏。 */
+    const char *eos_cases[] = {"normal", "eos-no-meta", "eos-no-frame"};
+    for (size_t i = 0; i < sizeof(eos_cases) / sizeof(eos_cases[0]); ++i) {
+        MUST(setenv("IPC_MOCK_MPP_CASE", eos_cases[i], 1) == 0);
+        MUST(ipc_video_encoder_init(&encoder, &config, 25, check_packet, &calls) == 0);
+        MUST(ipc_video_encoder_finish(encoder) == 0 && ipc_video_encoder_finish(encoder) == 0);
+        MUST(ipc_video_encoder_get_stats(encoder, &stats) == 0);
+        MUST(stats.submitted == 0 && stats.encoded == 0 && stats.eos);
+        MUST(ipc_video_encoder_send(encoder, &frame) == -EINVAL);
+        MUST(ipc_video_encoder_deinit(&encoder) == 0);
+    }
+    MUST(unsetenv("IPC_MOCK_MPP_CASE") == 0);
     free(frame.data);
     puts("PASS: encoder API bounds, PTS, EOS and ownership checks.");
     return 0;

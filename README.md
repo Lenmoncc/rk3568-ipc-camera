@@ -7,7 +7,8 @@
 
 - 已验证：配置、日志、原始帧有界队列、V4L2→队列→NV12 保存和开发板本地回放。
   板端 300 帧全部消费、无丢帧、实际 25fps；RKISP 逐帧 field 兼容已确认。
-- 本次实现：MPP H.264 编码、EOS 排空、本地 `.h264` 保存及板端回放脚本，待 SDK/板端验证。
+- 板端已验证：MPP H.264 1280×720/25fps，300 帧编码、10 个关键帧，保存文件并在板端正常播放。
+- 本次修复：空 EOS 不带输入帧元数据时误报失败、裸 H.264 循环播放 seek 失败；主机回归通过，收尾修复待板端重测。
 - 待实现：音频、编码包队列与分发、RTMP、MP4。`demo/` 为独立学习实验，不参与正式编译或调用。
 
 ## Ubuntu 编译
@@ -37,8 +38,9 @@ sh /root/rk3568_ipc_camera/play_h264.sh /root/rk3568_ipc_camera/video_720p_25fps
 ```
 
 正常无丢帧时应有 `submitted=encoded=300`、`eos=1`、退出码 0，视频约 12 秒。
-**播放仍在开发板屏幕上。** 脚本自动为本次 ffplay 设置已验证的 Wayland/SDL 环境，循环全屏显示；
-终端 Ctrl+C 或播放窗口 q 退出。当前只有视频，无音频。
+**播放仍在开发板屏幕上。** 脚本自动为本次 ffplay 设置已验证的 Wayland/SDL 环境，全屏播放一次并退出；
+再次观看请重新运行脚本，终端 Ctrl+C 或播放窗口 q 可提前退出。当前只有视频，无音频。
+不使用裸流循环 seek，避免板端 ffplay 反复输出 `error while seeking`。
 
 `--encode-fps 25` 配置码控和码流声明帧率，不强制改变摄像头帧率；默认值为 `video.fps`。
 `--frames 0` 连续运行，Ctrl+C 正常排空后返回 130。
@@ -70,7 +72,7 @@ make host-test
 make host-encoder-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 ```
 
-覆盖配置、日志、队列、42 个模拟采集场景、53 个模拟编码集成场景及编码接口边界。
+覆盖配置、日志、队列、42 个模拟采集场景、59 个模拟编码集成场景及编码接口边界。
 模拟 MPP 使用 `tests/mpp_headers/` 下固定版本官方公开头文件；**正式构建不包含该目录**。
 主机模拟编码产物不可播放，也不能证明真实硬件性能。第二条关闭 LeakSanitizer，仅检查 ASan/UBSan。
 
