@@ -1,11 +1,13 @@
 /** @file video_pipeline.h
- * @brief 视频采集与原始队列的阶段验证入口，无编码、显示和网络依赖。
+ * @brief 视频采集/硬编码阶段入口；显示交给板端 ffplay，不接入网络。
  */
 #ifndef IPC_VIDEO_PIPELINE_H
 #define IPC_VIDEO_PIPELINE_H
 #include "config.h"
 
 typedef struct {
+    const char *h264_path;        /**< 非 NULL 开启硬编码，独占创建 Annex B H.264 文件。 */
+    unsigned int encode_fps;      /**< 0 使用 config.video_fps；否则 1..30，不改变摄像头。 */
     unsigned int frames;          /**< 有效采集帧数上限，0 为持续采集；默认 300。 */
     const char *dump_path;         /**< 可选紧凑 NV12 文件，NULL 表示不保存。 */
     unsigned int dump_frames;     /**< 最多保存前多少个消费帧；路径有效时须大于零。 */

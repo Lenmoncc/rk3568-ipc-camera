@@ -1,6 +1,6 @@
 /**
  * @file video_pipeline.c
- * @brief 正式工程阶段链路：V4L2 -> 有界队列 -> 检查/可选保存 -> 释放。
+ * @brief 正式工程阶段链路：V4L2 -> 有界队列 -> 检查/可选 NV12 保存/MPP 编码 -> 释放。
  *
  * 采集线程独占设备 read 和生产统计，消费线程独占文件写入和消费统计。
  * 管理线程只通过 C11 原子变量请求停止/观察结束，在 join 后读取普通统计。
@@ -9,6 +9,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "video_pipeline.h"
 #include "v4l2_capture.h"
+#include "video_encoder.h"
 #include "frame_queue.h"
 #include "timestamp.h"
 #include "log.h"
@@ -32,7 +33,8 @@ typedef struct {
     IpcFrameQueue *queue;
     IpcVideoFormat format;
     IpcVideoRunOptions options;
-    FILE *dump;
+    FILE *dump, *h264;
+    IpcVideoEncoder *encoder;
     atomic_bool stop, producer_done, consumer_done;
     uint64_t captured, enqueued, dropped_full, dropped_stop;
     uint64_t consumed, saved;
@@ -133,7 +135,7 @@ static int delay_consumer(unsigned int milliseconds)
     return 0;
 }
 
-/** @brief 消费线程：检查帧、可选保存、最终释放；写入失败后仍排空队列。 */
+/** @brief 消费线程：检查/保存原始帧、编码输出，失败后排空释放，正常结束发送 EOS。 */
 static void *consume_worker(void *argument)
 {
     VideoPipeline *pipeline = argument;
@@ -148,12 +150,14 @@ static void *consume_worker(void *argument)
                 result = save_frame(pipeline->dump, frame);
                 if (result == 0) ++pipeline->saved;
             }
+            if (result == 0 && pipeline->encoder != NULL)
+                result = ipc_video_encoder_send(pipeline->encoder, frame);
             if (result == 0 && pipeline->options.consumer_delay_ms != 0)
                 result = delay_consumer(pipeline->options.consumer_delay_ms);
             if (result < 0) {
                 pipeline->consumer_error = result;
                 atomic_store(&pipeline->stop, true);
-                ipc_log_write(IPC_LOG_ERROR, "consumer", "frame/write failed: %s", strerror(-result));
+                ipc_log_write(IPC_LOG_ERROR, "consumer", "frame/encode/write failed: %s", strerror(-result));
             }
             last_pts = frame->pts_us;
             if (pipeline->consumed == 1 || pipeline->consumed % 100 == 0)
@@ -163,23 +167,41 @@ static void *consume_worker(void *argument)
         ipc_raw_frame_free(&frame);
     }
     if (result < 0) { pipeline->consumer_error = result; atomic_store(&pipeline->stop, true); }
+    /* 队列先排空，再发不含图像的 EOS；编码或写入失败则不继续向坏状态送数据。 */
+    if (pipeline->encoder != NULL && pipeline->consumer_error == 0) {
+        result = ipc_video_encoder_finish(pipeline->encoder);
+        if (result < 0) {
+            pipeline->consumer_error = result;
+            atomic_store(&pipeline->stop, true);
+            ipc_log_write(IPC_LOG_ERROR, "encoder", "EOS drain failed: %s", strerror(-result));
+        }
+    }
     atomic_store(&pipeline->consumer_done, true);
     return NULL;
 }
 
-/** @brief 独占创建验证文件；不覆盖已有内容，文件缓冲由消费线程单独写入。 */
-static int open_dump(VideoPipeline *pipeline)
+/** @brief 独占创建输出文件；两个输出均采用同一策略，永不覆盖已有内容。 */
+static int open_output(const char *path, FILE **output)
 {
     int descriptor;
-    if (pipeline->options.dump_path == NULL) return 0;
-    descriptor = open(pipeline->options.dump_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
+    if (path == NULL) return 0;
+    descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
     if (descriptor < 0) return -errno;
-    pipeline->dump = fdopen(descriptor, "wb");
-    if (pipeline->dump == NULL) {
+    *output = fdopen(descriptor, "wb");
+    if (*output == NULL) {
         int error = errno;
         close(descriptor);
         return -error;
     }
+    return 0;
+}
+
+/** @brief 在 MPP 包有效期间写入 Annex B 数据；空 EOS 只通知结束，不写入伪数据。 */
+static int save_h264_packet(void *opaque, const IpcH264Packet *packet)
+{
+    VideoPipeline *pipeline = opaque;
+    if (packet->size != 0 && fwrite(packet->data, 1, packet->size, pipeline->h264) != packet->size)
+        return errno ? -errno : -EIO;
     return 0;
 }
 
@@ -214,13 +236,14 @@ int ipc_video_pipeline_run(const IpcConfig *config, const IpcVideoRunOptions *op
 {
     VideoPipeline pipeline = {0};
     IpcVideoCaptureStats stats = {0};
+    IpcVideoEncoderStats encoded = {0};
     pthread_t producer, consumer;
     bool producer_started = false, consumer_started = false, interrupted = false;
     sigset_t signals, old_mask;
     int result = 0, current;
     int64_t epoch;
     if (config == NULL || options == NULL || options->consumer_delay_ms > 1000 ||
-        (options->dump_path != NULL && options->dump_frames == 0)) return 1;
+        (options->dump_path != NULL && options->dump_frames == 0) || options->encode_fps > 30) return 1;
     pipeline.options = *options;
     atomic_init(&pipeline.stop, false);
     atomic_init(&pipeline.producer_done, false);
@@ -238,8 +261,15 @@ int ipc_video_pipeline_run(const IpcConfig *config, const IpcVideoRunOptions *op
     if (result < 0) goto cleanup;
     result = ipc_video_capture_get_format(pipeline.capture, &pipeline.format);
     if (result < 0) goto cleanup;
-    result = open_dump(&pipeline);
+    result = open_output(options->dump_path, &pipeline.dump);
     if (result < 0) goto cleanup;
+    if (options->h264_path != NULL) {
+        result = open_output(options->h264_path, &pipeline.h264);
+        if (result < 0) goto cleanup;
+        result = ipc_video_encoder_init(&pipeline.encoder, config,
+                    options->encode_fps ? options->encode_fps : config->video_fps, save_h264_packet, &pipeline);
+        if (result < 0) goto cleanup;
+    }
     epoch = ipc_monotonic_us();
     if (epoch < 0) { result = -EIO; goto cleanup; }
     result = ipc_video_capture_start(pipeline.capture, epoch);
@@ -279,6 +309,27 @@ cleanup:
     }
     if (pipeline.dump != NULL && fclose(pipeline.dump) != 0 && result == 0)
         result = errno ? -errno : -EIO; /* fclose 可能才报告延迟写入错误，必须检查。 */
+    if (pipeline.h264 != NULL && fclose(pipeline.h264) != 0 && result == 0)
+        result = errno ? -errno : -EIO;
+    if (pipeline.encoder != NULL) {
+        ipc_video_encoder_get_stats(pipeline.encoder, &encoded);
+        ipc_log_write(IPC_LOG_INFO, "encoder", "summary: submitted=%" PRIu64 " encoded=%" PRIu64
+                      " packets=%" PRIu64 " bytes=%" PRIu64 " keyframes=%" PRIu64 " eos=%u fps_config=%u"
+                      " first_pts_us=%" PRId64 " last_pts_us=%" PRId64 " output=%s",
+                      encoded.submitted, encoded.encoded, encoded.packets, encoded.bytes, encoded.keyframes,
+                      encoded.eos ? 1U : 0U, encoded.fps, encoded.first_pts_us, encoded.last_pts_us, options->h264_path);
+        if (result == 0 && (encoded.submitted != pipeline.consumed || encoded.encoded != encoded.submitted || !encoded.eos))
+            result = -EIO;
+        if (stats.captured > 1 && stats.last_arrival_us > stats.first_arrival_us) {
+            double actual = (double)(stats.captured - 1) * 1000000.0 / (double)(stats.last_arrival_us - stats.first_arrival_us);
+            if (actual < encoded.fps * 0.95 || actual > encoded.fps * 1.05)
+                ipc_log_write(IPC_LOG_WARN, "encoder", "capture_fps=%.3f differs from encoder fps=%u; set --encode-fps to measured input rate", actual, encoded.fps);
+        }
+        if (pipeline.dropped_full != 0)
+            ipc_log_write(IPC_LOG_WARN, "encoder", "raw frames dropped before encoding; elementary H.264 cannot preserve capture timestamp gaps");
+    }
+    current = ipc_video_encoder_deinit(&pipeline.encoder);
+    if (result == 0) result = current;
     current = ipc_video_capture_deinit(&pipeline.capture);
     if (result == 0) result = current;
     ipc_frame_queue_destroy(&pipeline.queue);

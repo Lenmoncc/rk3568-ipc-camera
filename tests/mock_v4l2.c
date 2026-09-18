@@ -46,7 +46,10 @@ int __real_pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
 /** @brief 注入消费端写入错误；普通情况下仍验证真实文件输出。 */
 size_t __wrap_fwrite(const void *data, size_t size, size_t count, FILE *output)
 {
-    if (scenario != NULL && strcmp(scenario, "write-fail") == 0) {
+    static unsigned int writes;
+    const char *mpp_case = getenv("IPC_MOCK_MPP_CASE");
+    bool packet_failure = mpp_case && strcmp(mpp_case, "packet-write-fail") == 0 && writes++ > 0;
+    if (packet_failure || (scenario != NULL && strcmp(scenario, "write-fail") == 0)) {
         errno = ENOSPC;
         return 0;
     }
