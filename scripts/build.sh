@@ -15,4 +15,4 @@ case "$("$CC" -dumpmachine)" in
 esac
 printf '[BUILD] compiler=%s\n[BUILD] sysroot=%s\n' "$CC" "$SYSROOT"
 make -C "$PROJECT_DIR" SDK_ROOT="$SDK_ROOT" CC="$CC" SYSROOT="$SYSROOT" "$@"
-printf '[INFO] 当前实现配置、日志与原始帧队列；编译通过不代表采集、编码或推流功能已完成。\n'
+printf '[INFO] 当前实现配置、日志、队列与 V4L2 采集；请使用 --capture 上板验证，编码和推流尚未实现。\n'

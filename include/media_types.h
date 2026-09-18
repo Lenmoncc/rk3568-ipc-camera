@@ -45,6 +45,10 @@ typedef struct {
             size_t uv_stride;    /**< 相邻 UV 行首地址间隔，字节。 */
             size_t uv_offset;    /**< UV 首地址相对于 data 的偏移，字节。 */
             uint32_t sequence;   /**< 驱动帧序号，可用于观察丢帧和顺序。 */
+            int64_t capture_timestamp_us; /**< 驱动原始时间戳，未知时不用于 PTS；非法为 -1。 */
+            int64_t dequeue_monotonic_us; /**< 取帧时的单调时钟，用于实测到达帧率。 */
+            uint32_t timestamp_flags;     /**< 驱动时间戳时钟及采样位置标志，原样保留。 */
+            unsigned int timestamp_fallback; /**< 1 表示 PTS 使用出队时刻，非精确采集时刻。 */
         } video;
         struct {
             unsigned int sample_rate;         /**< 每声道每秒样本数，Hz。 */

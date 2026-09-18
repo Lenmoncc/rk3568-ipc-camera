@@ -1,14 +1,17 @@
-/*
- * timestamp.c — 共同起点和时间戳处理
- *
- * 当前阶段：只建立模块文件和对外接口，尚未实现任何业务函数。
- * 不使用“直接返回成功”的空实现；接入 main 前必须补齐本模块定义。
- *
- * 后续实现任务：
- * 1. 使用单调时钟定义共同起点，不使用系统日历时间驱动媒体时间线。
- * 2. 按实际采样率和累计采样数生成音频时间戳，并处理起始偏移。
- * 3. 校验时间基、溢出和特殊时间戳；保留有效的编码 PTS/DTS。
+/**
+ * @file timestamp.c
+ * @brief 提供应用单调时钟。音频采样换算和通用时间基换算留待编码阶段实现。
  */
+#define _POSIX_C_SOURCE 200809L
 #include "timestamp.h"
+#include <time.h>
 
-/* TODO：按头文件契约逐步实现。 */
+/** @brief 获取 CLOCK_MONOTONIC 微秒值；时钟调用失败或数值溢出返回 -1。 */
+int64_t ipc_monotonic_us(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0 || now.tv_sec < 0 ||
+        (uint64_t)now.tv_sec > (uint64_t)(INT64_MAX - now.tv_nsec / 1000) / 1000000)
+        return -1;
+    return (int64_t)now.tv_sec * 1000000 + now.tv_nsec / 1000;
+}

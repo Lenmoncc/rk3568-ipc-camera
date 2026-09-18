@@ -1,4 +1,4 @@
-# 当前实现配置、日志和原始帧队列，尚未接入 FFmpeg/ALSA/MPP。
+# 当前实现配置、日志、队列和 V4L2 视频采集，尚未接入 FFmpeg/ALSA/MPP。
 # 默认交叉编译；make host-check 使用独立目录做本机语法及链接检查。
 SDK_ROOT ?= $(HOME)/rk3568_linux_sdk
 BOARD_BUILD_DIR := $(SDK_ROOT)/buildroot/output/rockchip_atk_dlrk3568
@@ -11,7 +11,10 @@ QUEUE_TEST := $(BIN_DIR)/test_frame_queue
 QUEUE_TEST_OBJECT := $(BUILD_DIR)/test_frame_queue.o
 SOURCES := $(sort $(wildcard src/*.c))
 OBJECTS := $(patsubst src/%.c,$(BUILD_DIR)/%.o,$(SOURCES))
-DEPS := $(OBJECTS:.o=.d) $(QUEUE_TEST_OBJECT:.o=.d)
+MOCK_OBJECT := $(BUILD_DIR)/mock_v4l2.o
+MOCK_TARGET := $(BIN_DIR)/ipc_camera_mock
+MOCK_WRAPS := -Wl,--wrap=open,--wrap=close,--wrap=ioctl,--wrap=mmap,--wrap=munmap,--wrap=poll,--wrap=__poll_chk,--wrap=fwrite,--wrap=fclose,--wrap=pthread_create
+DEPS := $(OBJECTS:.o=.d) $(QUEUE_TEST_OBJECT:.o=.d) $(MOCK_OBJECT:.o=.d)
 CPPFLAGS += -Iinclude
 CFLAGS ?= -std=c11 -O0 -g -Wall -Wextra -Wpedantic
 CFLAGS += -pthread
@@ -27,7 +30,25 @@ LDFLAGS += -Wl,-rpath-link,$(SYSROOT)/usr/lib -Wl,-rpath-link,$(SYSROOT)/lib
 endif
 
 .PHONY: all clean host-check host-test queue-test host-queue-test host-queue-sanitize
+.PHONY: capture-mock host-capture-test host-capture-sanitize
 all: $(TARGET)
+
+# 模拟系统调用仅进入独立本机测试二进制，正式 TARGET 不链接 MOCK_OBJECT。
+capture-mock: $(MOCK_TARGET)
+
+$(MOCK_OBJECT): tests/mock_v4l2.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(MOCK_TARGET): $(OBJECTS) $(MOCK_OBJECT) | $(BIN_DIR)
+	$(CC) $(LDFLAGS) $^ $(MOCK_WRAPS) $(LDLIBS) -o $@
+
+host-capture-test:
+	$(MAKE) CC=cc SYSROOT= BUILD_DIR=build/host BIN_DIR=bin/host capture-mock
+	python3 tests/test_capture.py ./bin/host/ipc_camera_mock
+
+host-capture-sanitize:
+	$(MAKE) CC=cc SYSROOT= BUILD_DIR=build/capture-asan BIN_DIR=bin/capture-asan CFLAGS='-std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie' LDFLAGS='-fsanitize=address,undefined -no-pie' capture-mock
+	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 python3 tests/test_capture.py ./bin/capture-asan/ipc_camera_mock
 
 $(TARGET): $(OBJECTS) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
@@ -61,6 +82,7 @@ host-test: host-check
 	cc -std=c11 -Wall -Wextra -Werror -Iinclude -pthread tests/test_config_api.c src/config.c src/log.c -o build/host/test_config_api
 	./build/host/test_config_api configs/ipc.conf
 	$(MAKE) host-queue-test
+	$(MAKE) host-capture-test
 
 # 两个本机测试入口都不访问配置、设备或网络，输出目录与 ARM64 隔离。
 host-queue-test:
