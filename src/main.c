@@ -66,6 +66,6 @@ int main(int argc, char **argv)
         ipc_log_write(IPC_LOG_WARN, "main", "RTMP is disabled; an empty or placeholder URL is permitted");
     ipc_log_write(IPC_LOG_INFO, "main", "configuration validation passed; hardware parameters were not probed");
     if (!check_only)
-        ipc_log_write(IPC_LOG_INFO, "main", "configuration stage complete; capture, queues, encoding and outputs are NOT IMPLEMENTED");
+        ipc_log_write(IPC_LOG_INFO, "main", "configuration stage complete; raw frame queue is available via test_frame_queue; capture, packet queues, encoding and outputs are NOT IMPLEMENTED");
     return EXIT_SUCCESS;
 }

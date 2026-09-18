@@ -6,7 +6,7 @@
 
 ## 当前进度
 
-已完成工程骨架、配置读取与校验、线程安全日志、命令行及启动脚本。采集、队列、编码、推流和录像尚未接入主工程；`demo/` 中保留独立实验。
+已完成工程骨架、配置读取与校验、线程安全日志、命令行及启动脚本，以及原始数据有界队列。队列通过独立测试程序验证，尚未接入采集业务。摄像头、声卡、编码、编码包队列、推流和录像待实现；`demo/` 中保留独立实验。
 
 沿用 Buildroot SDK 工具链及原有 FFmpeg 4.4.1。本阶段只依赖 libc 和 pthread。
 
@@ -39,10 +39,36 @@ sh /实际项目路径/scripts/run.sh --check-config
 make host-test
 ```
 
-测试产物在 `bin/host/`，不能部署到 RK3568。
+测试产物在 `bin/host/`，不能部署到 RK3568。此命令包含配置、日志和队列测试。
+
+只运行队列测试：
+
+```bash
+make host-queue-test
+```
+
+## 队列上板验证
+
+Ubuntu 项目根目录执行，沿用 SDK 工具链：
+
+```bash
+sh scripts/build.sh all queue-test
+```
+
+将 `bin/test_frame_queue` 上传到板端 `/root/`，在开发板执行：
+
+```bash
+chmod +x /root/test_frame_queue
+/root/test_frame_queue
+```
+
+预期最后输出 `PASS: 9 frame queue scenarios (no hardware required).`，退出码为 0。
+测试使用模拟数据，不需要配置文件、摄像头、声卡或 SRS。主程序仍只检查配置；
+看到配置摘要不能代替运行队列测试。
 
 ## 文档与目录
 
+- [原始数据队列实现说明](docs/02_原始数据队列实现说明.md)：接口、所有权、同步原理、关闭流程和测试步骤。
 - [配置与日志模块实现说明](docs/01_配置与日志模块实现说明.md)：代码细节、配置规则、部署和验证。
 - [工程设计](docs/RK3568_IPC初版工程设计与实施流程.md)：模块、线程和数据传递。
 - [模块骨架阶段记录](docs/模块骨架说明.md)：上一阶段的历史说明。
