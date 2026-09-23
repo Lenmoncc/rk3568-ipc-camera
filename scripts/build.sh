@@ -27,6 +27,14 @@ if [ "$WITH_MPP" = 1 ]; then
         exit 1
     }
 fi
+# 音频启用时检查 SDK 的 ALSA 开发接口，链接器继续核对实际库和符号。
+WITH_ALSA=${WITH_ALSA:-1}
+ALSA_INCLUDE=${ALSA_INCLUDE:-"$SYSROOT/usr/include"}
+ALSA_LIBS=${ALSA_LIBS:--lasound}
+if [ "$WITH_ALSA" = 1 ] && [ ! -f "$ALSA_INCLUDE/alsa/asoundlib.h" ]; then
+    printf '[ERROR] 缺少 SDK ALSA 头文件：%s/alsa/asoundlib.h\n' "$ALSA_INCLUDE" >&2
+    exit 1
+fi
 printf '[BUILD] compiler=%s\n[BUILD] sysroot=%s\n' "$CC" "$SYSROOT"
-make -C "$PROJECT_DIR" SDK_ROOT="$SDK_ROOT" CC="$CC" SYSROOT="$SYSROOT" WITH_MPP="$WITH_MPP" MPP_INCLUDE="$MPP_INCLUDE" MPP_LIBS="$MPP_LIBS" "$@"
-printf '[INFO] 已构建；--capture 验证原始采集，--encode --output 新文件.h264 验证硬编码。音频、RTMP、MP4 尚未接入。\n'
+make -C "$PROJECT_DIR" SDK_ROOT="$SDK_ROOT" CC="$CC" SYSROOT="$SYSROOT" WITH_MPP="$WITH_MPP" MPP_INCLUDE="$MPP_INCLUDE" MPP_LIBS="$MPP_LIBS" WITH_ALSA="$WITH_ALSA" ALSA_INCLUDE="$ALSA_INCLUDE" ALSA_LIBS="$ALSA_LIBS" "$@"
+printf '[INFO] 已构建；--capture 验证原始采集，--encode --output 新文件.h264 验证硬编码。--audio-capture --pcm 新文件.pcm 验证音频。AAC、RTMP、MP4 尚未接入。\n'

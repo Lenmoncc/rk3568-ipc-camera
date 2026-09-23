@@ -1,14 +1,16 @@
 /**
  * @file main.c
- * @brief 主程序：默认检查配置，显式 --capture/--encode 才打开摄像头。
+ * @brief 主程序：默认检查配置，显式选择视频采集、视频编码或音频采集模式。
  *
- * 编码模式复用采集队列输出 H.264；尚不采集音频、连接服务器或创建 MP4。
+ * 视频输出 H.264，音频独立输出 PCM；尚不连接服务器或创建 MP4。
  */
 #define _POSIX_C_SOURCE 200809L
 #include "config.h"
 #include "log.h"
 #include "video_pipeline.h"
 #include "video_encoder.h"
+#include "audio_pipeline.h"
+#include "alsa_capture.h"
 #include <errno.h>
 #include <limits.h>
 
@@ -20,7 +22,7 @@
 static void print_usage(FILE *output, const char *program)
 {
     fprintf(output,
-            "Usage: %s [-c FILE] [--check-config | --capture | --encode] [options]\n"
+            "Usage: %s [-c FILE] [--check-config | --capture | --encode | --audio-capture] [options]\n"
             "  -c, --config FILE  Config path (default: configs/ipc.conf from current directory)\n"
             "      --check-config Validate and print config, then exit\n"
             "  -h, --help         Show this help without loading config\n"
@@ -32,7 +34,10 @@ static void print_usage(FILE *output, const char *program)
             "      --dump PATH   Create a NEW packed NV12 file (never overwrite)\n"
             "      --dump-frames N  Save at most N consumed frames (default 60)\n"
             "      --consumer-delay-ms N  Simulate slow consumption (0..1000)\n"
-            "No audio, RTMP or MP4 in this stage; use board ffplay for local playback.\n",
+            "      --audio-capture Capture PCM through the audio raw queue\n"
+            "      --pcm PATH     Create a NEW S16_LE PCM file (required for --audio-capture)\n"
+            "      --seconds N    Audio length 0..86400 seconds (default 10; 0 until Ctrl+C)\n"
+            "No AAC, RTMP or MP4 yet; board-local playback uses the scripts.\n",
             program);
 }
 
@@ -51,12 +56,14 @@ static int parse_unsigned(const char *text, unsigned int *value)
     return 0;
 }
 
-/** @brief 解析参数、加载配置，然后选择配置检查、原始采集或硬编码模式。 */
+/** @brief 解析参数、加载配置，然后选择配置检查、视频或音频模式；各模式参数严格隔离。 */
 int main(int argc, char **argv)
 {
     const char *config_path = "configs/ipc.conf";
-    bool check_only = false, capture = false, encode = false;
+    bool check_only = false, capture = false, encode = false, audio = false;
     bool capture_option = false, dump_count_set = false, encode_option = false;
+    bool audio_option = false, delay_set = false;
+    IpcAudioRunOptions audio_run = {.seconds = 10};
     IpcVideoRunOptions run = {.frames = 300, .dump_path = NULL, .dump_frames = 60, .consumer_delay_ms = 0};
     IpcConfig config;
     int option;
@@ -66,6 +73,9 @@ int main(int argc, char **argv)
         {"help", no_argument, NULL, 'h'},
         {"capture", no_argument, NULL, 'v'},
         {"encode", no_argument, NULL, 'e'},
+        {"audio-capture", no_argument, NULL, 'a'},
+        {"pcm", required_argument, NULL, 'p'},
+        {"seconds", required_argument, NULL, 't'},
         {"output", required_argument, NULL, 'o'},
         {"encode-fps", required_argument, NULL, 'f'},
         {"frames", required_argument, NULL, 'n'},
@@ -83,6 +93,16 @@ int main(int argc, char **argv)
         case 'k': check_only = true; break;
         case 'v': capture = true; break;
         case 'e': encode = true; break;
+        case 'a': audio = true; break;
+        case 'p':
+            audio_option = true;
+            audio_run.pcm_path = optarg;
+            if (!*optarg) goto bad_value;
+            break;
+        case 't':
+            audio_option = true;
+            if (parse_unsigned(optarg, &audio_run.seconds) < 0 || audio_run.seconds > 86400) goto bad_value;
+            break;
         case 'o':
             encode_option = true;
             run.h264_path = optarg;
@@ -106,7 +126,7 @@ int main(int argc, char **argv)
             if (parse_unsigned(optarg, &run.dump_frames) < 0 || run.dump_frames == 0) goto bad_value;
             break;
         case 'w':
-            capture_option = true;
+            delay_set = true;
             if (parse_unsigned(optarg, &run.consumer_delay_ms) < 0 || run.consumer_delay_ms > 1000) goto bad_value;
             break;
         case 'h': print_usage(stdout, argv[0]); return EXIT_SUCCESS;
@@ -120,10 +140,12 @@ int main(int argc, char **argv)
         ipc_log_write(IPC_LOG_ERROR, "main", "unexpected positional argument: %s", argv[optind]);
         return 2;
     }
-    if ((capture && encode) || ((capture || encode) && check_only) ||
+    if ((unsigned int)capture + encode + audio + check_only > 1 ||
+        (audio_option && !audio) || (audio && !audio_run.pcm_path) ||
+        (delay_set && !capture && !encode && !audio) ||
         (capture_option && !capture && !encode) || (dump_count_set && run.dump_path == NULL) ||
         (encode_option && !encode) || (encode && run.h264_path == NULL)) {
-        ipc_log_write(IPC_LOG_ERROR, "main", "invalid combination of capture/encode/check/dump options; --encode requires --output");
+        ipc_log_write(IPC_LOG_ERROR, "main", "invalid mode/options; --encode requires --output; --audio-capture requires --pcm");
         return 2;
     }
     ipc_log_write(IPC_LOG_DEBUG, "main", "loading configuration from %s", config_path);
@@ -142,10 +164,18 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
     if (capture || encode) return ipc_video_pipeline_run(&config, &run);
+    if (audio) {
+        if (!ipc_audio_capture_available()) {
+            ipc_log_write(IPC_LOG_ERROR, "main", "ALSA support disabled; rebuild with WITH_ALSA=1 using the board SDK");
+            return EXIT_FAILURE;
+        }
+        audio_run.consumer_delay_ms = run.consumer_delay_ms;
+        return ipc_audio_pipeline_run(&config, &audio_run);
+    }
     if (!check_only)
-        ipc_log_write(IPC_LOG_INFO, "main", "configuration stage complete; use --capture or --encode; audio, packet queues, RTMP and MP4 are NOT IMPLEMENTED");
+        ipc_log_write(IPC_LOG_INFO, "main", "configuration stage complete; use --capture, --encode or --audio-capture; AAC, packet queues, RTMP and MP4 are NOT IMPLEMENTED");
     return EXIT_SUCCESS;
 bad_value:
-    ipc_log_write(IPC_LOG_ERROR, "main", "invalid capture option value: %s", optarg ? optarg : "");
+    ipc_log_write(IPC_LOG_ERROR, "main", "invalid option value: %s", optarg ? optarg : "");
     return 2;
 }

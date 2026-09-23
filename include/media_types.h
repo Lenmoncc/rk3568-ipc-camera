@@ -54,6 +54,7 @@ typedef struct {
             unsigned int sample_rate;         /**< 每声道每秒样本数，Hz。 */
             unsigned int channels;            /**< 声道数。 */
             unsigned int samples_per_channel; /**< 本块每声道样本数，不是字节数。 */
+            uint64_t sample_index;             /**< 本块首样本的每声道累计下标，用于检查连续性。 */
             IpcAudioFormat sample_format;     /**< 初版固定 S16_LE，编码前再转换。 */
             /* S16_LE 的有效数据长度 = samples_per_channel * channels * 2；
              * 采集端计算时须检查溢出。AAC 重分帧由编码模块处理。 */

@@ -8,8 +8,9 @@
 - 已验证：配置、日志、原始帧有界队列、V4L2→队列→NV12 保存和开发板本地回放。
   板端 300 帧全部消费、无丢帧、实际 25fps；RKISP 逐帧 field 兼容已确认。
 - 板端已验证：MPP H.264 1280×720/25fps，300 帧编码、10 个关键帧，保存文件并在板端正常播放。
-- 本次修复：空 EOS 不带输入帧元数据时误报失败、裸 H.264 循环播放 seek 失败；主机回归通过，收尾修复待板端重测。
-- 待实现：音频、编码包队列与分发、RTMP、MP4。`demo/` 为独立学习实验，不参与正式编译或调用。
+- 板端已验证：空 EOS 兼容修复生效，300 帧编码排空完成，退出码 0；回放不再循环 seek。
+- 本次实现：ALSA 双声道 PCM 采集→原始音频队列→本地文件，提供板端回放脚本；主机验证通过，板端已验证录音/听音验收。
+- 待实现：AAC 编码、音视频并行与同步、编码包队列与分发、RTMP、MP4。`demo/` 为独立学习实验，不参与正式编译或调用。
 
 ## Ubuntu 编译
 
@@ -17,13 +18,14 @@
 sh scripts/build.sh
 ```
 
-复用 Buildroot SDK 的 ARM64 编译器和 sysroot。正式构建默认开启 MPP，使用 SDK 的
-`rk_mpi.h`、`rk_venc_cfg.h`、`librockchip_mpp`，不链接主机库、不升级原有 FFmpeg 4.4.1。
+复用 Buildroot SDK 的 ARM64 编译器和 sysroot。正式构建默认开启 MPP 和 ALSA，使用 SDK 的
+MPP/ALSA 头文件与 `librockchip_mpp`、`libasound`，不链接主机库、不升级原有 FFmpeg 4.4.1。
 默认 SDK：`$HOME/rk3568_linux_sdk`；其他位置用 `SDK_ROOT=/实际路径 sh scripts/build.sh`。
 
 生成 `bin/ipc_camera`。将它上传到板端 `/root/rk3568_ipc_camera/ipc_camera`；
 将 `configs/ipc.conf` 上传到该目录的 `ipc.conf`（可保留已有配置），
-将 `scripts/play_h264.sh` 上传到该目录的 `play_h264.sh`。
+将 `scripts/play_h264.sh`、`scripts/play_pcm.sh` 上传到该目录。
+**本次请同步 `ipc.conf` 中 `audio.channels=2`，旧的单声道配置在当前 RK809 硬件上会失败。**
 
 ## 开发板编码与本地播放
 
@@ -49,6 +51,26 @@ sh /root/rk3568_ipc_camera/play_h264.sh /root/rk3568_ipc_camera/video_720p_25fps
 完整的接口、所有权、异常处理、SDK 排查、板端解码计数和 Git 提交步骤见：
 [MPP 硬编码与板端回放说明](docs/04_MPP硬编码与板端回放说明.md)。
 
+## 开发板音频采集与本地回放
+
+板端已确认录音设备 `hw:0,0`，支持声道范围 2..8，单声道设置失败。
+本次使用 48kHz、双声道、S16_LE，程序严格设置并读回参数；尚待实际听音确认。
+以下每条命令单独执行，录音期间对麦克风说话，输出文件须不存在：
+
+```bash
+cd /root/rk3568_ipc_camera
+./ipc_camera --config ipc.conf --audio-capture --seconds 10 --pcm /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm
+echo $?
+wc -c /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm
+sh ./play_pcm.sh /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm 48000 2
+```
+
+预期四项 `*_samples` 均为 480000（每声道），文件 1920000 字节，`xruns=suspends=queue_full=0`，
+退出码 0，板端耳机/扬声器听到录制的声音。脚本默认 `plughw:0,0`，无需 Wayland 环境。
+`--seconds 0` 持续录音，Ctrl+C 有序排空后退出 130。音频与视频模式当前互斥。
+录音溢出/队列满会报错停止，不静默丢样；`peak_ch0/peak_ch1` 可辅助排查全零或单侧无信号。
+完整说明见 [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)。
+
 ## 保留的采集模式
 
 默认不传模式时只检查配置。`--capture` 保留原始采集验证，不运行编码：
@@ -70,20 +92,23 @@ XDG_RUNTIME_DIR=/run WAYLAND_DISPLAY=wayland-0 SDL_VIDEODRIVER=wayland SDL_RENDE
 ```bash
 make host-test
 make host-encoder-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
+make host-audio-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 ```
 
-覆盖配置、日志、队列、42 个模拟采集场景、59 个模拟编码集成场景及编码接口边界。
+覆盖配置、日志、队列、42 个模拟采集场景、59 个模拟编码集成场景、64 个模拟音频场景及编码/音频接口边界。
 模拟 MPP 使用 `tests/mpp_headers/` 下固定版本官方公开头文件；**正式构建不包含该目录**。
-主机模拟编码产物不可播放，也不能证明真实硬件性能。第二条关闭 LeakSanitizer，仅检查 ASan/UBSan。
+主机模拟编码产物不可播放，也不能证明真实硬件性能。上述 sanitizer 命令关闭 LeakSanitizer，仅检查 ASan/UBSan。
 
-只测某部分可运行 `make host-queue-test`、`make host-capture-test`、`make host-encoder-test`。
-`bin/host/`、`bin/encoder-mock/`、`bin/encoder-asan/` 均不能部署到开发板。
+只测某部分可运行 `make host-queue-test`、`make host-capture-test`、`make host-encoder-test`、`make host-audio-test`。
+`bin/host/`、`bin/encoder-mock/`、`bin/encoder-asan/` 以及 `bin/audio-mock/`、`bin/audio-asan/` 均不能部署到开发板。
 板端队列测试仍可通过 `sh scripts/build.sh all queue-test` 构建 `bin/test_frame_queue`，预期 9 项通过。
 
 ## 配置和文档
 
-- 视频初版固定 1280×720 NV12/H.264；音频 48000Hz 单声道仍为待板端确认的初值。
+- 视频初版固定 1280×720 NV12/H.264；本阶段音频为 48000Hz 双声道 S16_LE，实际参数及声音由板端验收。
+- `audio.codec=aac`、`audio.bitrate=128000` 为后续编码预留，本阶段仅保存原始 PCM。
 - RTMP 默认关闭，SRS 地址占位；`output.record_path` 留给后续 MP4，当前编码用 `--output`。
+- [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)
 - [MPP 硬编码与板端回放](docs/04_MPP硬编码与板端回放说明.md)
 - [V4L2 采集与队列接入](docs/03_V4L2采集与队列接入说明.md)
 - [原始数据队列](docs/02_原始数据队列实现说明.md)
