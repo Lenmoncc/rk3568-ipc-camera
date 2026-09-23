@@ -1,11 +1,13 @@
 /** @file audio_pipeline.c
- * @brief 正式音频链路：ALSA→独占 PCM 块→有界队列→文件；不依赖 demo。
- * 采集线程独占 ALSA，保存线程独占 FILE；主线程在 join 后汇总普通统计。
+ * @brief 正式音频链路：ALSA→独占 PCM 块→有界队列→PCM 或 AAC 文件；不依赖 demo。
+ * 采集线程独占 ALSA，消费者独占编码器和 FILE；主线程在 join 后汇总普通统计。
  * 音频不采用视频的丢帧策略：队列满即报错停止，已入队数据仍被排空。
  */
 #define _POSIX_C_SOURCE 200809L
 #include "audio_pipeline.h"
 #include "alsa_capture.h"
+#include "audio_encoder.h"
+#include "audio_adts.h"
 #include "frame_queue.h"
 #include "timestamp.h"
 #include "log.h"
@@ -26,6 +28,8 @@ typedef struct {
     IpcAudioCaptureFormat format;
     IpcAudioRunOptions options;
     FILE *file;
+    IpcAudioEncoder *encoder;
+    IpcAudioAdts adts;
     atomic_bool stop, producer_done, consumer_done;
     uint64_t target_samples, captured, enqueued, consumed, saved, queue_full;
     unsigned int peak[2];
@@ -113,7 +117,7 @@ static void measure_peaks(AudioPipeline *p, const IpcRawFrame *frame)
     }
 }
 
-/** @brief 消费并同步写 PCM；首次写错后请求停止，但仍释放队列中全部剩余块。 */
+/** @brief 消费并同步保存 PCM 或编码 AAC；首次写错后请求停止，但仍释放队列中全部剩余块。 */
 static void *audio_consumer(void *argument)
 {
     AudioPipeline *p = argument;
@@ -132,9 +136,11 @@ static void *audio_consumer(void *argument)
                 p->consumed += frame->info.audio.samples_per_channel;
                 measure_peaks(p, frame);
                 errno = 0;
-                if (fwrite(frame->data, 1, frame->size, p->file) != frame->size)
+                if (p->encoder)
+                    result = ipc_audio_encoder_push(p->encoder, frame, ipc_audio_adts_write, &p->adts);
+                else if (fwrite(frame->data, 1, frame->size, p->file) != frame->size)
                     result = errno ? -errno : -EIO;
-                else {
+                if (result == 0) {
                     p->saved += frame->info.audio.samples_per_channel;
                     if (frame->info.audio.sample_index == 0)
                         ipc_log_write(IPC_LOG_INFO, "audio", "first block: samples=%u pts_us=%" PRId64,
@@ -151,13 +157,16 @@ static void *audio_consumer(void *argument)
         }
         ipc_raw_frame_free(&frame);
     }
+    /* 生产者关闭队列后仍处理已接收样本；信号停止也必须取完编码器延迟包。 */
+    if (!p->consumer_error && p->encoder)
+        p->consumer_error = ipc_audio_encoder_finish(p->encoder, ipc_audio_adts_write, &p->adts);
     if (p->consumer_error) atomic_store(&p->stop, true);
     atomic_store(&p->consumer_done, true);
     return NULL;
 }
 
-/** @brief 独占创建 PCM 文件；fdopen 失败也关闭 fd，绝不覆盖历史录音。 */
-static int open_pcm(const char *path, FILE **file)
+/** @brief 独占创建输出文件；fdopen 失败也关闭 fd，绝不覆盖历史录音。 */
+static int open_audio_output(const char *path, FILE **file)
 {
     int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
     if (fd < 0) return -errno;
@@ -171,12 +180,17 @@ int ipc_audio_pipeline_run(const IpcConfig *config, const IpcAudioRunOptions *op
 {
     AudioPipeline p = {0};
     IpcAudioCaptureStats stats = {0};
+    IpcAudioEncoderStats encoded = {0};
+    const IpcStreamParams *params = NULL;
+    const char *output;
     pthread_t producer, consumer;
     bool producer_started = false, consumer_started = false, interrupted = false;
     sigset_t signals, old_mask;
     int result = 0, current;
-    if (!config || !options || !options->pcm_path || !*options->pcm_path ||
+    if (!config || !options || (!!options->pcm_path + !!options->aac_path != 1) ||
         options->seconds > 86400 || options->consumer_delay_ms > 1000) return 1;
+    output = options->aac_path ? options->aac_path : options->pcm_path;
+    if (!*output) return 1;
     p.options = *options;
     atomic_init(&p.stop, false);
     atomic_init(&p.producer_done, false);
@@ -192,8 +206,18 @@ int ipc_audio_pipeline_run(const IpcConfig *config, const IpcAudioRunOptions *op
     p.target_samples = (uint64_t)options->seconds * p.format.sample_rate;
     result = ipc_frame_queue_create(&p.queue, config->audio_raw_capacity);
     if (result < 0) goto cleanup;
-    result = open_pcm(options->pcm_path, &p.file);
+    if (options->aac_path) {
+        result = ipc_audio_encoder_init(&p.encoder, config);
+        if (result < 0) goto cleanup;
+        result = ipc_audio_encoder_get_params(p.encoder, &params);
+        if (result < 0) goto cleanup;
+    }
+    result = open_audio_output(output, &p.file);
     if (result < 0) goto cleanup;
+    if (p.encoder) {
+        result = ipc_audio_adts_init(&p.adts, p.file, params);
+        if (result < 0) goto cleanup;
+    }
     p.epoch_us = ipc_monotonic_us();
     if (p.epoch_us < 0) { result = -EIO; goto cleanup; }
     /* 信号在主线程同步处理；工作线程继承屏蔽状态，不安装异步清理处理器。 */
@@ -225,20 +249,31 @@ cleanup:
         if (!result && (stats.samples != p.captured || p.captured != p.enqueued || p.enqueued != p.consumed ||
             p.consumed != p.saved || (!interrupted && p.target_samples && p.saved != p.target_samples))) result = -EIO;
     }
+    if (p.encoder) {
+        ipc_audio_encoder_get_stats(p.encoder, &encoded);
+        if (!result && (!encoded.drained || encoded.input_samples != p.saved || encoded.packets != p.adts.packets)) result = -EIO;
+        ipc_log_write(IPC_LOG_INFO, "aac", "summary: input_samples=%" PRIu64 " converted_samples=%" PRIu64
+                      " submitted_samples=%" PRIu64 " padding_samples=%" PRIu64 " initial_padding=%u packets=%" PRIu64
+                      " bytes=%" PRIu64 " drained=%u first_pts_us=%" PRId64 " last_packet_pts=%" PRId64,
+                      encoded.input_samples, encoded.converted_samples, encoded.submitted_samples, encoded.padding_samples,
+                      encoded.initial_padding, encoded.packets, p.adts.bytes, (unsigned int)encoded.drained,
+                      encoded.first_pts_us, encoded.last_packet_pts);
+    }
+    ipc_audio_encoder_deinit(&p.encoder);
     current = ipc_audio_capture_deinit(&p.capture);
     if (!result) result = current;
     ipc_frame_queue_destroy(&p.queue);
     ipc_log_write(IPC_LOG_INFO, "audio", "summary: captured_samples=%" PRIu64 " enqueued_samples=%" PRIu64
                   " consumed_samples=%" PRIu64 " saved_samples=%" PRIu64 " bytes=%" PRIu64
                   " blocks=%" PRIu64 " queue_full=%" PRIu64 " xruns=%" PRIu64 " suspends=%" PRIu64,
-                  p.captured, p.enqueued, p.consumed, p.saved, p.saved * p.format.channels * 2,
+                  p.captured, p.enqueued, p.consumed, p.saved, options->aac_path ? p.adts.bytes : p.saved * p.format.channels * 2,
                   stats.blocks, p.queue_full, stats.xruns, stats.suspends);
     ipc_log_write(IPC_LOG_INFO, "audio", "rate=%u channels=%u short_reads=%" PRIu64 " eagain=%" PRIu64
                   " wait_timeouts=%" PRIu64 " duration=%.3f first_pts_us=%" PRId64 " last_pts_us=%" PRId64
                   " peak_ch0=%u peak_ch1=%u output=%s",
                   p.format.sample_rate, p.format.channels, stats.short_reads, stats.would_block, stats.wait_timeouts,
                   p.format.sample_rate ? (double)p.saved / p.format.sample_rate : 0.0,
-                  stats.first_pts_us, stats.last_pts_us, p.peak[0], p.peak[1], options->pcm_path);
+                  stats.first_pts_us, stats.last_pts_us, p.peak[0], p.peak[1], output);
     if (p.saved && !p.peak[0] && !p.peak[1])
         ipc_log_write(IPC_LOG_WARN, "audio", "all saved PCM samples are zero; check capture input/mixer/microphone");
     current = pthread_sigmask(SIG_SETMASK, &old_mask, NULL);

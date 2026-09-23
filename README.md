@@ -9,8 +9,9 @@
   板端 300 帧全部消费、无丢帧、实际 25fps；RKISP 逐帧 field 兼容已确认。
 - 板端已验证：MPP H.264 1280×720/25fps，300 帧编码、10 个关键帧，保存文件并在板端正常播放。
 - 板端已验证：空 EOS 兼容修复生效，300 帧编码排空完成，退出码 0；回放不再循环 seek。
-- 本次实现：ALSA 双声道 PCM 采集→原始音频队列→本地文件，提供板端回放脚本；主机验证通过，板端已验证录音/听音验收。
-- 待实现：AAC 编码、音视频并行与同步、编码包队列与分发、RTMP、MP4。`demo/` 为独立学习实验，不参与正式编译或调用。
+- 已完成：ALSA 双声道 PCM 采集→原始音频队列→本地文件，提供板端回放脚本；主机验证通过，板端已验证录音/听音验收。
+- 本次实现：FFmpeg AAC-LC 编码、ADTS 保存与板端本地回放脚本；41 项真实 AAC/API/集成检查和 ASan/UBSan 通过，AAC 板端验收待执行。
+- 待实现：音视频并行与同步、编码包队列与分发、RTMP、MP4。`demo/` 为独立学习实验，不参与正式编译或调用。
 
 ## Ubuntu 编译
 
@@ -18,13 +19,13 @@
 sh scripts/build.sh
 ```
 
-复用 Buildroot SDK 的 ARM64 编译器和 sysroot。正式构建默认开启 MPP 和 ALSA，使用 SDK 的
-MPP/ALSA 头文件与 `librockchip_mpp`、`libasound`，不链接主机库、不升级原有 FFmpeg 4.4.1。
+复用 Buildroot SDK 的 ARM64 编译器和 sysroot。正式构建默认开启 MPP、ALSA 和 FFmpeg，使用 SDK 的
+MPP/ALSA/FFmpeg 头文件与 `librockchip_mpp`、`libasound`、`libavcodec`、`libswresample`、`libavutil`，不链接主机库、不升级原有 FFmpeg 4.4.1。
 默认 SDK：`$HOME/rk3568_linux_sdk`；其他位置用 `SDK_ROOT=/实际路径 sh scripts/build.sh`。
 
 生成 `bin/ipc_camera`。将它上传到板端 `/root/rk3568_ipc_camera/ipc_camera`；
 将 `configs/ipc.conf` 上传到该目录的 `ipc.conf`（可保留已有配置），
-将 `scripts/play_h264.sh`、`scripts/play_pcm.sh` 上传到该目录。
+将 `scripts/play_h264.sh`、`scripts/play_pcm.sh`、`scripts/play_aac.sh` 上传到该目录。
 **本次请同步 `ipc.conf` 中 `audio.channels=2`，旧的单声道配置在当前 RK809 硬件上会失败。**
 
 ## 开发板编码与本地播放
@@ -54,7 +55,7 @@ sh /root/rk3568_ipc_camera/play_h264.sh /root/rk3568_ipc_camera/video_720p_25fps
 ## 开发板音频采集与本地回放
 
 板端已确认录音设备 `hw:0,0`，支持声道范围 2..8，单声道设置失败。
-本次使用 48kHz、双声道、S16_LE，程序严格设置并读回参数；尚待实际听音确认。
+本次使用 48kHz、双声道、S16_LE，程序严格设置并读回参数，上一阶段已通过板端录音与听音验收。
 以下每条命令单独执行，录音期间对麦克风说话，输出文件须不存在：
 
 ```bash
@@ -70,6 +71,26 @@ sh ./play_pcm.sh /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm 48000 2
 `--seconds 0` 持续录音，Ctrl+C 有序排空后退出 130。音频与视频模式当前互斥。
 录音溢出/队列满会报错停止，不静默丢样；`peak_ch0/peak_ch1` 可辅助排查全零或单侧无信号。
 完整说明见 [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)。
+
+## 开发板 AAC 编码与本地回放
+
+先在 Ubuntu 执行 `sh scripts/build.sh -B`，更新板端程序与 `play_aac.sh`。
+采集仍使用 `hw:0,0`、48000Hz、双声道、S16_LE；AAC-LC 目标码率 128000bit/s。
+每条命令分别执行，录音时对麦克风说话，新文件不得已存在：
+
+```bash
+./ipc_camera --config ipc.conf --audio-encode --seconds 10 --aac /root/rk3568_ipc_camera/audio_aac_01.aac
+echo $?
+ffprobe -v error -show_entries stream=codec_name,profile,sample_rate,channels -of default=noprint_wrappers=1 /root/rk3568_ipc_camera/audio_aac_01.aac
+sh ./play_aac.sh /root/rk3568_ipc_camera/audio_aac_01.aac
+```
+
+播放脚本在开发板解码为临时 WAV 后，用 `aplay -D plughw:0,0` 本地播放，结束清理临时文件，
+无需桌面/Wayland。长录音的临时 WAV 需要足够的 `TMPDIR` 空间。
+预期 `input_samples=converted_samples=480000`、`drained=1`，退出码 0，AAC-LC/48000Hz/2 声道，听音正常。
+`submitted_samples` 包含尾部补零；ADTS 不保存编码延迟裁剪信息，不能要求播放长度与输入严格相等。
+完整架构、统计语义、异常行为、测试方法和提交命令见
+[AAC 编码与板端回放说明](docs/06_AAC编码与板端回放说明.md)。
 
 ## 保留的采集模式
 
@@ -99,6 +120,8 @@ make host-audio-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 模拟 MPP 使用 `tests/mpp_headers/` 下固定版本官方公开头文件；**正式构建不包含该目录**。
 主机模拟编码产物不可播放，也不能证明真实硬件性能。上述 sanitizer 命令关闭 LeakSanitizer，仅检查 ASan/UBSan。
 
+AAC 测试使用真实 FFmpeg 4.4.1 编码库，需主机开发依赖；`make host-aac-test` / `make host-aac-sanitize` 的参数和验证结果见第 06 号文档。
+
 只测某部分可运行 `make host-queue-test`、`make host-capture-test`、`make host-encoder-test`、`make host-audio-test`。
 `bin/host/`、`bin/encoder-mock/`、`bin/encoder-asan/` 以及 `bin/audio-mock/`、`bin/audio-asan/` 均不能部署到开发板。
 板端队列测试仍可通过 `sh scripts/build.sh all queue-test` 构建 `bin/test_frame_queue`，预期 9 项通过。
@@ -106,7 +129,7 @@ make host-audio-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 ## 配置和文档
 
 - 视频初版固定 1280×720 NV12/H.264；本阶段音频为 48000Hz 双声道 S16_LE，实际参数及声音由板端验收。
-- `audio.codec=aac`、`audio.bitrate=128000` 为后续编码预留，本阶段仅保存原始 PCM。
+- `audio.codec=aac`、`audio.bitrate=128000` 在 `--audio-encode` 模式实际用于编码；PCM 模式保持不变。
 - RTMP 默认关闭，SRS 地址占位；`output.record_path` 留给后续 MP4，当前编码用 `--output`。
 - [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)
 - [MPP 硬编码与板端回放](docs/04_MPP硬编码与板端回放说明.md)

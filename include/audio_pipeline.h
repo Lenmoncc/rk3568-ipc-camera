@@ -1,11 +1,12 @@
 /** @file audio_pipeline.h
- * @brief ALSA→原始音频队列→PCM 文件的阶段入口，当前独立于视频运行。
+ * @brief ALSA→原始音频队列→PCM/AAC 文件的阶段入口，当前独立于视频运行。
  */
 #ifndef IPC_AUDIO_PIPELINE_H
 #define IPC_AUDIO_PIPELINE_H
 #include "config.h"
 typedef struct {
-    const char *pcm_path; /**< 必填；独占创建新文件，拒绝覆盖。 */
+    const char *aac_path; /**< AAC 模式输出路径；与 pcm_path 恰好指定一个。 */
+    const char *pcm_path; /**< PCM 模式输出路径；独占创建新文件，拒绝覆盖。 */
     unsigned int seconds; /**< 按每声道样本数限长，默认 10；0 持续录音，最大 86400。 */
     unsigned int consumer_delay_ms; /**< 故障验证用途，默认 0，最大 1000ms。 */
 } IpcAudioRunOptions;
