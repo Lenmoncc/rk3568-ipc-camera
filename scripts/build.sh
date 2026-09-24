@@ -46,4 +46,4 @@ if [ "$WITH_FFMPEG" = 1 ]; then
 fi
 printf '[BUILD] compiler=%s\n[BUILD] sysroot=%s\n' "$CC" "$SYSROOT"
 make -C "$PROJECT_DIR" SDK_ROOT="$SDK_ROOT" CC="$CC" SYSROOT="$SYSROOT" WITH_MPP="$WITH_MPP" MPP_INCLUDE="$MPP_INCLUDE" MPP_LIBS="$MPP_LIBS" WITH_ALSA="$WITH_ALSA" ALSA_INCLUDE="$ALSA_INCLUDE" ALSA_LIBS="$ALSA_LIBS" WITH_FFMPEG="$WITH_FFMPEG" FFMPEG_INCLUDE="$FFMPEG_INCLUDE" FFMPEG_LIBS="$FFMPEG_LIBS" "$@"
-printf '[INFO] 已构建；--capture 验证原始采集，--encode --output 新文件.h264 验证硬编码。--audio-capture --pcm 新文件.pcm 验证音频。--audio-encode --aac 新文件.aac 验证 AAC。--record --mp4 新文件.mp4 验证音视频录像；RTMP 尚未接入。\n'
+printf '[INFO] 已构建；--capture 验证原始采集，--encode --output 新文件.h264 验证硬编码。--audio-capture --pcm 新文件.pcm 验证音频。--audio-encode --aac 新文件.aac 验证 AAC。--record --mp4 新文件.mp4 验证音视频录像；使用 configs/ipc-rtmp.conf 时同时推流，--stream 可只推流。\n'

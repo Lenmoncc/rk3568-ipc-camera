@@ -11,8 +11,9 @@
 - 板端已验证：空 EOS 兼容修复生效，300 帧编码排空完成，退出码 0；回放不再循环 seek。
 - 已完成：ALSA 双声道 PCM 采集→原始音频队列→本地文件，提供板端回放脚本；主机验证通过，板端已验证录音/听音验收。
 - 已完成：FFmpeg AAC-LC 编码、ADTS 保存与板端本地回放脚本；41 项真实 AAC/API/集成检查和 ASan/UBSan 通过，AAC 板端已验证。
-- 本次实现：音视频并行录制、共同时间轴、编码包队列、MP4 封装与板端回放脚本；41 项录像检查及 ASan/UBSan 通过，板端已验证。
-- 待实现：RTMP 与双输出分发、长期时钟漂移补偿。`demo/` 为独立学习实验，不参与正式编译或调用。
+- 板端已验证：音视频并行录制、共同时间轴、编码包队列、MP4 封装与本地回放。
+- 本次实现：RTMP 推流、独立编码包引用分发、推流与 MP4 并行、网络故障隔离及有界退出；主机验证通过，板端 SRS 联调，目标功能都正常，但存在延时和杂音（杂音目前并不确定）。
+- 后续：自动重连、长期时钟漂移补偿、录像分段。`demo/` 为独立学习实验，不参与正式编译或调用。
 
 ## Ubuntu 编译
 
@@ -28,6 +29,37 @@ MPP/ALSA/FFmpeg 头文件与 `librockchip_mpp`、`libasound`、`libavformat`、`
 将 `configs/ipc.conf` 上传到该目录的 `ipc.conf`（可保留已有配置），
 将 `scripts/play_h264.sh`、`scripts/play_pcm.sh`、`scripts/play_aac.sh`、`scripts/play_mp4.sh` 上传到该目录。
 **本次请同步 `ipc.conf` 中 `audio.channels=2`，旧的单声道配置在当前 RK809 硬件上会失败。**
+
+## 开发板 RTMP 推流与同时录像
+
+Ubuntu 编译：`sh scripts/build.sh -B`。部署新的 `bin/ipc_camera`、`configs/ipc-rtmp.conf`、`scripts/play_mp4.sh` 到板端 `/root/rk3568_ipc_camera/`。
+推流配置单独保存，原 `ipc.conf` 继续用于本地调试；新配置已填 `rtmp://192.168.137.100:1935/live/cam01`，48kHz 双声道。
+
+板端推流并保存 MP4（文件名须未存在）：
+
+```bash
+./ipc_camera --config ipc-rtmp.conf --record --stream --seconds 30 --encode-fps 25 --mp4 /root/rk3568_ipc_camera/record_rtmp_01.mp4
+echo $?
+sh ./play_mp4.sh /root/rk3568_ipc_camera/record_rtmp_01.mp4
+```
+
+在虚拟机另一个终端观看直播（推流运行期间执行）：
+
+```bash
+ffplay -i rtmp://192.168.137.100:1935/live/cam01
+```
+
+只推流、不生成本地文件：
+
+```bash
+./ipc_camera --config ipc-rtmp.conf --stream --seconds 30 --encode-fps 25
+```
+
+`--seconds 0` 持续运行；Ctrl+C 正常收尾退出 130。双输出网络故障后本地继续录满，退出 3，日志明确区分；只推流失败退出 1。
+正常有限运行退出 0：RTMP `header=1 completed=1 error=0`，MP4 `trailer=1`，两路音视频包数分别闭合。
+程序不自动重连；恢复 SRS 后重新运行，并更换 MP4 文件名。网络写入成功不等于播放器已经播放。
+
+模块、队列、子进程超时、故障测试和完整验收步骤见 [RTMP 推流与双输出说明](docs/08_RTMP推流与双输出说明.md)。
 
 ## 开发板音视频 MP4 录像
 
@@ -144,6 +176,8 @@ make host-audio-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
 
 AAC 测试使用真实 FFmpeg 4.4.1 编码库，需主机开发依赖；`make host-aac-test` / `make host-aac-sanitize` 的参数和验证结果见第 06 号文档。
 
+RTMP 的 `host-rtmp-test` / `host-rtmp-sanitize` 覆盖双输出、网络失败隔离、无限阻塞和真实 RTMP/TCP 回环，参数见第 08 号文档。
+
 录像的 `host-record-test` / `host-record-sanitize` 使用真实 FFmpeg 4.4.1 和模拟设备，执行参数见第 07 号文档。
 
 只测某部分可运行 `make host-queue-test`、`make host-capture-test`、`make host-encoder-test`、`make host-audio-test`。
@@ -154,7 +188,7 @@ AAC 测试使用真实 FFmpeg 4.4.1 编码库，需主机开发依赖；`make ho
 
 - 视频初版固定 1280×720 NV12/H.264；本阶段音频为 48000Hz 双声道 S16_LE，实际参数及声音由板端验收。
 - `audio.codec=aac`、`audio.bitrate=128000` 在 `--audio-encode` 模式实际用于编码；PCM 模式保持不变。
-- RTMP 默认关闭，SRS 地址占位；`output.record_path` 是 `--record` 的默认路径，`--mp4` 可覆盖；独立 H.264 编码仍用 `--output`。
+- `ipc.conf` 保留 RTMP 默认关闭；`ipc-rtmp.conf` 启用真实 SRS 地址；`output.record_path` 是 `--record` 的默认路径，`--mp4` 可覆盖；独立 H.264 编码仍用 `--output`。
 - [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)
 - [MPP 硬编码与板端回放](docs/04_MPP硬编码与板端回放说明.md)
 - [V4L2 采集与队列接入](docs/03_V4L2采集与队列接入说明.md)

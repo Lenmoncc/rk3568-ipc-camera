@@ -6,12 +6,13 @@
 #include "config.h"
 typedef struct {
     const char *mp4_path; /**< NULL 使用 config.record_path；独占新建，不自动创建父目录。 */
+    bool stream_only; /**< true 只推流，不创建 MP4；要求 config.rtmp_enabled=true。 */
     unsigned int seconds; /**< 共同时间起点后的录制时长，默认 30，0 直到信号停止。 */
     unsigned int encode_fps; /**< 0 使用 config.video_fps；当前板端建议显式传 25。 */
     unsigned int output_delay_ms; /**< 仅故障验证，人为放慢输出，0..1000ms。 */
 } IpcRecordOptions;
-/** @brief 启动五个工作线程，共用时间轴并按依赖排空；主线程无其他业务线程时调用。
- * @return 0 正常录像完成，130 信号停止且收尾成功，1 任一阶段失败。
+/** @brief 启动采集/编码及所需输出线程，共用时间轴并按依赖排空；主线程无其他业务线程时调用。
+ * @return 0 全部所选输出正常，130 信号停止且收尾成功，3 网络失败但本地录像完整，1 其他失败。
  */
 int ipc_record_pipeline_run(const IpcConfig *config, const IpcRecordOptions *options);
 #endif

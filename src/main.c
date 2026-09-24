@@ -2,7 +2,7 @@
  * @file main.c
  * @brief 主程序：默认检查配置，显式选择视频采集、视频编码或音频采集模式。
  *
- * 视频输出 H.264，音频独立输出 PCM 或 AAC；可并行录制 MP4；尚不连接服务器。
+ * 视频输出 H.264，音频独立输出 PCM 或 AAC；可并行录制 MP4；可通过 RTMP 独立推流或同时录像。
  */
 #define _POSIX_C_SOURCE 200809L
 #include "config.h"
@@ -12,6 +12,7 @@
 #include "audio_pipeline.h"
 #include "audio_encoder.h"
 #include "record_pipeline.h"
+#include "rtmp_transport.h"
 #include "alsa_capture.h"
 #include <errno.h>
 #include <limits.h>
@@ -24,7 +25,7 @@
 static void print_usage(FILE *output, const char *program)
 {
     fprintf(output,
-            "Usage: %s [-c FILE] [--check-config | --capture | --encode | --audio-capture | --audio-encode | --record] [options]\n"
+            "Usage: %s [-c FILE] [--check-config | --capture | --encode | --audio-capture | --audio-encode | --record [--stream] | --stream] [options]\n"
             "  -c, --config FILE  Config path (default: configs/ipc.conf from current directory)\n"
             "      --check-config Validate and print config, then exit\n"
             "  -h, --help         Show this help without loading config\n"
@@ -38,12 +39,13 @@ static void print_usage(FILE *output, const char *program)
             "      --consumer-delay-ms N  Simulate slow consumption (0..1000)\n"
             "      --audio-capture Capture PCM through the audio raw queue\n"
             "      --pcm PATH     Create a NEW S16_LE PCM file (required for --audio-capture)\n"
-            "      --seconds N    Audio/record length 0..86400 (default audio 10, record 30; 0 until Ctrl+C)\n"
+            "      --seconds N    Audio/record/stream length 0..86400 (default audio 10, record/stream 30; 0 until Ctrl+C)\n"
             "      --audio-encode Capture and encode AAC-LC (requires --aac PATH)\n"
             "      --aac PATH     Create a NEW ADTS AAC file\n"
-            "      --record      Record H.264 + AAC to MP4 (default 30 seconds)\n"
+            "      --record      Record MP4; also RTMP if enabled in config (default 30 seconds)\n"
             "      --mp4 PATH    NEW MP4 path (default config output.record_path)\n"
-            "No RTMP yet; board-local playback uses the scripts.\n",
+            "      --stream      RTMP only; combine --record to also save MP4 (requires rtmp_enabled=true)\n"
+            "--record enables RTMP too when config output.rtmp_enabled=true. No automatic reconnect.\n",
             program);
 }
 
@@ -65,11 +67,13 @@ static int parse_unsigned(const char *text, unsigned int *value)
 /** @brief 解析参数、加载配置，然后选择配置检查、视频或音频模式；各模式参数严格隔离。 */
 int main(int argc, char **argv)
 {
+    int internal = ipc_rtmp_transport_dispatch(argc,argv);
+    if (internal >= 0) return internal;
     const char *config_path = "configs/ipc.conf";
     bool check_only = false, capture = false, encode = false, audio = false;
     bool capture_option = false, dump_count_set = false, encode_option = false;
     bool audio_option = false, delay_set = false, audio_encode = false, record = false;
-    bool seconds_set = false, fps_set = false;
+    bool seconds_set = false, fps_set = false, stream = false;
     IpcRecordOptions record_run = {.seconds = 30};
     IpcAudioRunOptions audio_run = {.seconds = 10};
     IpcVideoRunOptions run = {.frames = 300, .dump_path = NULL, .dump_frames = 60, .consumer_delay_ms = 0};
@@ -84,6 +88,7 @@ int main(int argc, char **argv)
         {"audio-capture", no_argument, NULL, 'a'},
         {"audio-encode", no_argument, NULL, 'A'},
         {"record", no_argument, NULL, 'R'},
+        {"stream", no_argument, NULL, 'S'},
         {"mp4", required_argument, NULL, 'M'},
         {"aac", required_argument, NULL, 'O'},
         {"pcm", required_argument, NULL, 'p'},
@@ -108,6 +113,7 @@ int main(int argc, char **argv)
         case 'a': audio = true; break;
         case 'A': audio_encode = true; break;
         case 'R': record = true; break;
+        case 'S': stream = true; break;
         case 'M':
             record_run.mp4_path = optarg;
             if (!*optarg) goto bad_value;
@@ -163,14 +169,14 @@ int main(int argc, char **argv)
         ipc_log_write(IPC_LOG_ERROR, "main", "unexpected positional argument: %s", argv[optind]);
         return 2;
     }
-    if ((unsigned int)capture + encode + audio + audio_encode + record + check_only > 1 ||
+    if ((unsigned int)capture + encode + audio + audio_encode + (record || stream) + check_only > 1 ||
         (audio_option && !audio && !audio_encode) || (audio && !audio_run.pcm_path) ||
         (audio_run.pcm_path && !audio) || (audio_run.aac_path && !audio_encode) ||
         (audio_encode && !audio_run.aac_path) ||
         (delay_set && !capture && !encode && !audio && !audio_encode && !record) ||
         (capture_option && !capture && !encode) || (dump_count_set && run.dump_path == NULL) ||
-        (encode_option && !encode) || (fps_set && !encode && !record) ||
-        (seconds_set && !audio && !audio_encode && !record) || (record_run.mp4_path && !record) || (encode && run.h264_path == NULL)) {
+        (encode_option && !encode) || (fps_set && !encode && !record && !stream) ||
+        (seconds_set && !audio && !audio_encode && !record && !stream) || (record_run.mp4_path && !record) || (encode && run.h264_path == NULL)) {
         ipc_log_write(IPC_LOG_ERROR, "main", "invalid mode/options; --encode requires --output; --audio-capture requires --pcm; --audio-encode requires --aac");
         return 2;
     }
@@ -189,7 +195,11 @@ int main(int argc, char **argv)
         ipc_log_write(IPC_LOG_ERROR, "main", "MPP support disabled; rebuild with WITH_MPP=1 using the board SDK");
         return EXIT_FAILURE;
     }
-    if (record) {
+    if (stream && !config.rtmp_enabled) {
+        ipc_log_write(IPC_LOG_ERROR,"main","--stream requires output.rtmp_enabled=true and a real RTMP URL"); return 2;
+    }
+    if (record || stream) {
+        record_run.stream_only = stream && !record;
         if (seconds_set) record_run.seconds = audio_run.seconds;
         record_run.encode_fps = run.encode_fps;
         record_run.output_delay_ms = run.consumer_delay_ms;
@@ -209,7 +219,7 @@ int main(int argc, char **argv)
         return ipc_audio_pipeline_run(&config, &audio_run);
     }
     if (!check_only)
-        ipc_log_write(IPC_LOG_INFO, "main", "configuration stage complete; use --capture, --encode or --audio-capture/--audio-encode; use --record for MP4; RTMP is NOT IMPLEMENTED");
+        ipc_log_write(IPC_LOG_INFO, "main", "configuration stage complete; use --capture, --encode or --audio-capture/--audio-encode; use --record for MP4 and --stream for RTMP");
     return EXIT_SUCCESS;
 bad_value:
     ipc_log_write(IPC_LOG_ERROR, "main", "invalid option value: %s", optarg ? optarg : "");

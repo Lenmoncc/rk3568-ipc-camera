@@ -33,7 +33,7 @@ ifeq ($(WITH_ALSA),1)
 CPPFLAGS += -isystem $(ALSA_INCLUDE)
 LDLIBS += $(ALSA_LIBS)
 endif
-# AAC 编码只使用 SDK 中 avcodec/swresample/avutil，无外部进程编码。
+# 编码与 MP4/FLV 封装使用 SDK 的 FFmpeg；RTMP 子进程仅负责网络 AVIO，无外部进程编码。
 FFMPEG_INCLUDE ?= $(SYSROOT)/usr/include
 FFMPEG_LIBS ?= -lavformat -lavcodec -lswresample -lavutil
 ifeq ($(WITH_FFMPEG),1)
@@ -222,3 +222,18 @@ host-record-sanitize:
 	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 ./bin/record-asan/test_packet_queue
 	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 python3 tests/test_record.py ./bin/record-asan/ipc_camera_record_mock
 -include $(BUILD_DIR)/mock_record_devices.d $(BUILD_DIR)/test_packet_queue.d
+
+# RTMP 集成测试使用同一 exec 子进程，只有网络 AVIO 故障替身进入专用测试二进制。
+.PHONY: rtmp-test-binaries host-rtmp-test host-rtmp-sanitize
+rtmp-test-binaries: $(BIN_DIR)/ipc_camera_rtmp_mock
+$(BUILD_DIR)/mock_rtmp_io.o: tests/mock_rtmp_io.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BIN_DIR)/ipc_camera_rtmp_mock: $(RECORD_OBJECTS) $(BUILD_DIR)/mock_record_devices.o $(BUILD_DIR)/mock_rtmp_io.o | $(BIN_DIR)
+	$(CC) $(LDFLAGS) $^ $(RECORD_WRAPS) -Wl,--wrap=avio_open2,--wrap=avio_closep $(LDLIBS) -lm -o $@
+host-rtmp-test:
+	$(MAKE) CC=cc SYSROOT= WITH_MPP=0 WITH_ALSA=0 WITH_FFMPEG=1 FFMPEG_INCLUDE='$(FFMPEG_INCLUDE)' FFMPEG_LIBS='$(FFMPEG_LIBS)' BUILD_DIR=build/rtmp-real BIN_DIR=bin/rtmp-real CFLAGS='-std=c11 -O2 -g -Wall -Wextra -Wpedantic -Werror -pthread' rtmp-test-binaries
+	python3 tests/test_rtmp.py ./bin/rtmp-real/ipc_camera_rtmp_mock
+host-rtmp-sanitize:
+	$(MAKE) CC=cc SYSROOT= WITH_MPP=0 WITH_ALSA=0 WITH_FFMPEG=1 FFMPEG_INCLUDE='$(FFMPEG_INCLUDE)' FFMPEG_LIBS='$(FFMPEG_LIBS)' BUILD_DIR=build/rtmp-asan BIN_DIR=bin/rtmp-asan CFLAGS='-std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie' LDFLAGS='-fsanitize=address,undefined -no-pie' rtmp-test-binaries
+	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 python3 tests/test_rtmp.py ./bin/rtmp-asan/ipc_camera_rtmp_mock
+-include $(BUILD_DIR)/mock_rtmp_io.d

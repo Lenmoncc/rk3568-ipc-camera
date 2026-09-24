@@ -11,6 +11,8 @@
 struct IpcH264Bridge {
     IpcStreamParams params;
     IpcPacketQueue *queue;
+    IpcH264FrameSink sink;
+    void *opaque;
     AVPacket *parts;
     IpcEncodedPacket *pending;
     unsigned int fps;
@@ -32,7 +34,7 @@ static bool has_parameter_sets(const uint8_t *data, size_t size)
 /** @brief 配置视频描述，码流头待 MPP 回调补齐；只支持当前无 B 帧的 Baseline。 */
 int ipc_h264_bridge_init(IpcH264Bridge **context, const IpcConfig *config, unsigned int fps, IpcPacketQueue *queue)
 {
-    if (!context || *context || !config || !queue || !fps || fps > 30) return -EINVAL;
+    if (!context || *context || !config || !fps || fps > 30) return -EINVAL;
     IpcH264Bridge *b = calloc(1, sizeof(*b));
     if (!b) return -ENOMEM;
     b->params.codecpar = avcodec_parameters_alloc(); b->parts = av_packet_alloc();
@@ -46,12 +48,24 @@ int ipc_h264_bridge_init(IpcH264Bridge **context, const IpcConfig *config, unsig
     b->queue = queue; b->fps = fps; b->pts = -1;
     *context = b; return 0;
 }
+/** @brief 在首帧之前安装同步分发回调，原队列仅作为未安装回调时的兼容出口。 */
+int ipc_h264_bridge_set_sink(IpcH264Bridge *b, IpcH264FrameSink sink, void *opaque)
+{
+    if (!b || !sink || b->pending || b->parts->size || b->pts >= 0 || b->failed || b->finished) return -EINVAL;
+    b->sink = sink; b->opaque = opaque; return 0;
+}
 /** @brief 转交暂存完整帧；仅成功时清空本方指针，满队列不丢弃旧数据。 */
 static int publish_pending(IpcH264Bridge *b)
 {
     if (!b->pending) return 0;
-    int result = ipc_packet_queue_try_push(b->queue, b->pending);
-    if (!result) b->pending = NULL;
+    int result;
+    if (b->sink) {
+        result = b->sink(b->opaque,b->pending);
+        if (!result) ipc_encoded_packet_free(&b->pending);
+    } else {
+        result = b->queue ? ipc_packet_queue_try_push(b->queue,b->pending) : -EINVAL;
+        if (!result) b->pending = NULL;
+    }
     return result;
 }
 /** @brief 复制借用的 MPP 数据并按 frame_end 组帧；错误后锁定实例，防止重复片段。 */
@@ -127,6 +141,8 @@ void ipc_h264_bridge_deinit(IpcH264Bridge **context)
 /** @brief 禁用 FFmpeg 时拒绝初始化桥接器。 */
 int ipc_h264_bridge_init(IpcH264Bridge **b,const IpcConfig *c,unsigned int f,IpcPacketQueue *q)
 { (void)b;(void)c;(void)f;(void)q;return -ENOTSUP; }
+/** @brief 禁用 FFmpeg 时拒绝安装回调。 */
+int ipc_h264_bridge_set_sink(IpcH264Bridge *b,IpcH264FrameSink s,void *o){(void)b;(void)s;(void)o;return -ENOTSUP;}
 /** @brief 禁用 FFmpeg 时无编码包转换能力。 */
 int ipc_h264_bridge_sink(void *b,const IpcH264Packet *p) { (void)b;(void)p;return -ENOTSUP; }
 /** @brief 禁用 FFmpeg 时无有效流参数。 */
