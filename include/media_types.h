@@ -2,7 +2,7 @@
  * @file media_types.h
  * @brief 采集、队列、编码模块共享的媒体描述，不依赖具体设备库。
  *
- * 原始帧由应用独占持有；编码包与流参数是后续阶段的接口草案。
+ * 原始帧由应用独占持有；编码包与流参数用于 AAC、视频桥接和 MP4 输出。
  * 队列不检查格式正确性，采集端负责填充，编码端负责核对支持的布局。
  */
 #ifndef IPC_MEDIA_TYPES_H
@@ -11,8 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* 前向声明使骨架不依赖本机的 FFmpeg 头文件。
- * 实现阶段必须包含 SDK 内相应的 FFmpeg 4.4.1 头文件。 */
+/* 前向声明使公共媒体描述不依赖 FFmpeg 头文件。
+ * 启用编码/封装的实现文件使用 SDK 的 FFmpeg 4.4.1 接口。 */
 struct AVPacket;
 struct AVCodecParameters;
 

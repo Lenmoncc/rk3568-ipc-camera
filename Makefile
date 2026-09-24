@@ -35,7 +35,7 @@ LDLIBS += $(ALSA_LIBS)
 endif
 # AAC 编码只使用 SDK 中 avcodec/swresample/avutil，无外部进程编码。
 FFMPEG_INCLUDE ?= $(SYSROOT)/usr/include
-FFMPEG_LIBS ?= -lavcodec -lswresample -lavutil
+FFMPEG_LIBS ?= -lavformat -lavcodec -lswresample -lavutil
 ifeq ($(WITH_FFMPEG),1)
 CPPFLAGS += -isystem $(FFMPEG_INCLUDE)
 LDLIBS += $(FFMPEG_LIBS)
@@ -199,3 +199,26 @@ host-aac-sanitize:
 	$(MAKE) CC=cc SYSROOT= WITH_MPP=0 WITH_ALSA=1 WITH_FFMPEG=1 ALSA_INCLUDE=tests/alsa_headers ALSA_LIBS= FFMPEG_INCLUDE='$(FFMPEG_INCLUDE)' FFMPEG_LIBS='$(FFMPEG_LIBS)' BUILD_DIR=build/aac-asan BIN_DIR=bin/aac-asan CFLAGS='-std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie' LDFLAGS='-fsanitize=address,undefined -no-pie' aac-test-binaries
 	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 python3 tests/test_aac.py ./bin/aac-asan/ipc_camera_audio_mock ./bin/aac-asan/test_aac_api
 -include $(BUILD_DIR)/test_aac_api.d
+
+# 录像测试只替换采集设备和 MPP 数据源；正式队列、AAC、时间轴和 MP4 使用真实实现。
+.PHONY: record-test-binaries host-record-test host-record-sanitize
+RECORD_OBJECTS = $(filter-out $(BUILD_DIR)/v4l2_capture.o $(BUILD_DIR)/alsa_capture.o $(BUILD_DIR)/video_encoder.o,$(OBJECTS))
+RECORD_WRAPS = -Wl,--wrap=pthread_create,--wrap=write,--wrap=lseek,--wrap=close
+record-test-binaries: $(BIN_DIR)/ipc_camera_record_mock $(BIN_DIR)/test_packet_queue
+$(BUILD_DIR)/mock_record_devices.o: tests/mock_record_devices.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BIN_DIR)/ipc_camera_record_mock: $(RECORD_OBJECTS) $(BUILD_DIR)/mock_record_devices.o | $(BIN_DIR)
+	$(CC) $(LDFLAGS) $^ $(RECORD_WRAPS) $(LDLIBS) -lm -o $@
+$(BUILD_DIR)/test_packet_queue.o: tests/test_packet_queue.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BIN_DIR)/test_packet_queue: $(BUILD_DIR)/test_packet_queue.o $(BUILD_DIR)/packet_queue.o $(BUILD_DIR)/h264_bridge.o $(BUILD_DIR)/mp4_output.o $(BUILD_DIR)/log.o | $(BIN_DIR)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+host-record-test:
+	$(MAKE) CC=cc SYSROOT= WITH_MPP=0 WITH_ALSA=0 WITH_FFMPEG=1 FFMPEG_INCLUDE='$(FFMPEG_INCLUDE)' FFMPEG_LIBS='$(FFMPEG_LIBS)' BUILD_DIR=build/record-real BIN_DIR=bin/record-real CFLAGS='-std=c11 -O2 -g -Wall -Wextra -Wpedantic -Werror -pthread' record-test-binaries
+	./bin/record-real/test_packet_queue
+	python3 tests/test_record.py ./bin/record-real/ipc_camera_record_mock
+host-record-sanitize:
+	$(MAKE) CC=cc SYSROOT= WITH_MPP=0 WITH_ALSA=0 WITH_FFMPEG=1 FFMPEG_INCLUDE='$(FFMPEG_INCLUDE)' FFMPEG_LIBS='$(FFMPEG_LIBS)' BUILD_DIR=build/record-asan BIN_DIR=bin/record-asan CFLAGS='-std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie' LDFLAGS='-fsanitize=address,undefined -no-pie' record-test-binaries
+	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 ./bin/record-asan/test_packet_queue
+	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 python3 tests/test_record.py ./bin/record-asan/ipc_camera_record_mock
+-include $(BUILD_DIR)/mock_record_devices.d $(BUILD_DIR)/test_packet_queue.d

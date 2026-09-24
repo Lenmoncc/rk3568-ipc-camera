@@ -38,12 +38,12 @@ fi
 # AAC 接口与库必须来自同一 SDK；不通过升级板端 FFmpeg 解决编译依赖。
 WITH_FFMPEG=${WITH_FFMPEG:-1}
 FFMPEG_INCLUDE=${FFMPEG_INCLUDE:-"$SYSROOT/usr/include"}
-FFMPEG_LIBS=${FFMPEG_LIBS:--lavcodec -lswresample -lavutil}
+FFMPEG_LIBS=${FFMPEG_LIBS:--lavformat -lavcodec -lswresample -lavutil}
 if [ "$WITH_FFMPEG" = 1 ]; then
-    for header in libavcodec/avcodec.h libswresample/swresample.h libavutil/audio_fifo.h; do
+    for header in libavformat/avformat.h libavcodec/avcodec.h libswresample/swresample.h libavutil/audio_fifo.h; do
         [ -f "$FFMPEG_INCLUDE/$header" ] || { printf '[ERROR] 缺少 SDK FFmpeg 头文件：%s/%s\n' "$FFMPEG_INCLUDE" "$header" >&2; exit 1; }
     done
 fi
 printf '[BUILD] compiler=%s\n[BUILD] sysroot=%s\n' "$CC" "$SYSROOT"
 make -C "$PROJECT_DIR" SDK_ROOT="$SDK_ROOT" CC="$CC" SYSROOT="$SYSROOT" WITH_MPP="$WITH_MPP" MPP_INCLUDE="$MPP_INCLUDE" MPP_LIBS="$MPP_LIBS" WITH_ALSA="$WITH_ALSA" ALSA_INCLUDE="$ALSA_INCLUDE" ALSA_LIBS="$ALSA_LIBS" WITH_FFMPEG="$WITH_FFMPEG" FFMPEG_INCLUDE="$FFMPEG_INCLUDE" FFMPEG_LIBS="$FFMPEG_LIBS" "$@"
-printf '[INFO] 已构建；--capture 验证原始采集，--encode --output 新文件.h264 验证硬编码。--audio-capture --pcm 新文件.pcm 验证音频。--audio-encode --aac 新文件.aac 验证 AAC。RTMP、MP4 尚未接入。\n'
+printf '[INFO] 已构建；--capture 验证原始采集，--encode --output 新文件.h264 验证硬编码。--audio-capture --pcm 新文件.pcm 验证音频。--audio-encode --aac 新文件.aac 验证 AAC。--record --mp4 新文件.mp4 验证音视频录像；RTMP 尚未接入。\n'
