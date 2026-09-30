@@ -1,198 +1,163 @@
 # rk3568-ipc-camera
 
-基于正点原子 RK3568 的嵌入式 Linux 音视频采集与推流项目及学习记录。
-目标：720P NV12 → MPP H.264；ALSA PCM → AAC；RTMP 推流与 MP4 录像。
+基于**正点原子 RK3568 开发板套件及配套 MIPI 摄像头**的嵌入式 Linux 音视频工程。
+V4L2 采集 NV12、MPP 硬件编码 H.264；ALSA 采集 PCM、FFmpeg 编码 AAC；支持 RTMP 直播与本地 MP4 同时录像。
 
-## 当前进度
+**当前交付版本：1.0.0，初版核心功能已完成。** 已验证板端采集、编码、本地回放和 SRS 推流跑通。
 
-- 已验证：配置、日志、原始帧有界队列、V4L2→队列→NV12 保存和开发板本地回放。
-  板端 300 帧全部消费、无丢帧、实际 25fps；RKISP 逐帧 field 兼容已确认。
-- 板端已验证：MPP H.264 1280×720/25fps，300 帧编码、10 个关键帧，保存文件并在板端正常播放。
-- 板端已验证：空 EOS 兼容修复生效，300 帧编码排空完成，退出码 0；回放不再循环 seek。
-- 已完成：ALSA 双声道 PCM 采集→原始音频队列→本地文件，提供板端回放脚本；主机验证通过，板端已验证录音/听音验收。
-- 已完成：FFmpeg AAC-LC 编码、ADTS 保存与板端本地回放脚本；41 项真实 AAC/API/集成检查和 ASan/UBSan 通过，AAC 板端已验证。
-- 板端已验证：音视频并行录制、共同时间轴、编码包队列、MP4 封装与本地回放。
-- 本次实现：RTMP 推流、独立编码包引用分发、推流与 MP4 并行、网络故障隔离及有界退出；主机验证通过，板端 SRS 联调，目标功能都正常，但存在延时和杂音（杂音目前并不确定）。
-- 后续：自动重连、长期时钟漂移补偿、录像分段。`demo/` 为独立学习实验，不参与正式编译或调用。
+## 使用的开发板套件
 
-## Ubuntu 编译
+| 项目 | 本工程实际使用情况 |
+| --- | --- |
+| 开发板 | 正点原子 RK3568 开发板套件；板端系统标识 `ATK-DLRK3568` |
+| 主控/架构 | Rockchip RK3568，ARM64 / AArch64 |
+| 摄像头 | 开发板套件配套 MIPI 摄像头，当前板端驱动识别为 **IMX415** |
+| 摄像头通路 | 已有 MIPI/ISP 通路，`rkisp_v5` / `rkisp_mainpath`，设备 `/dev/video0` |
+| 视频工作参数 | 1280×720、NV12，板端实测约 **25fps**；H.264、2Mbps、GOP 30 |
+| 音频 | 板载 RK809 声卡 `hw:0,0`；48kHz、双声道、S16_LE；AAC-LC、128kbps |
+| 系统与编译 | 配套 RK3568 Linux SDK / Buildroot 系统；Ubuntu 交叉编译 |
+| 多媒体依赖 | SDK 原有 MPP、ALSA、FFmpeg 4.4.1 |
+| 板端本地回放 | ffplay + Wayland，软件渲染，ALSA 音频 |
+| 推流接收端 | Ubuntu 虚拟机上的 SRS；本实验地址 `192.168.137.100` |
+
+
+
+## 不编译，直接在开发板试用
+
+工程保留两个 **ARM64 可执行文件**：`bin/ipc_camera`、`bin/test_frame_queue`。
+在原配套系统或兼容运行环境中可以直接运行；程序为动态链接，依赖说明及校验值见 [bin/README.md](bin/README.md)。
+将完整工程目录上传或解压到开发板，进入工程根目录（以下示例路径为 `/root/rk3568-ipc-camera`；如实际目录不同，调整第一行）：
 
 ```bash
-sh scripts/build.sh
+cd /root/rk3568-ipc-camera
+chmod +x bin/ipc_camera bin/test_frame_queue
+(cd bin && sha256sum -c SHA256SUMS)
+./bin/ipc_camera --help
+sh scripts/run.sh --check-config
+mkdir -p /userdata/record
 ```
 
-复用 Buildroot SDK 的 ARM64 编译器和 sysroot。正式构建默认开启 MPP、ALSA 和 FFmpeg，使用 SDK 的
-MPP/ALSA/FFmpeg 头文件与 `librockchip_mpp`、`libasound`、`libavformat`、`libavcodec`、`libswresample`、`libavutil`，不链接主机库、不升级原有 FFmpeg 4.4.1。
-默认 SDK：`$HOME/rk3568_linux_sdk`；其他位置用 `SDK_ROOT=/实际路径 sh scripts/build.sh`。
-
-生成 `bin/ipc_camera`。将它上传到板端 `/root/rk3568_ipc_camera/ipc_camera`；
-将 `configs/ipc.conf` 上传到该目录的 `ipc.conf`（可保留已有配置），
-将 `scripts/play_h264.sh`、`scripts/play_pcm.sh`、`scripts/play_aac.sh`、`scripts/play_mp4.sh` 上传到该目录。
-**本次请同步 `ipc.conf` 中 `audio.channels=2`，旧的单声道配置在当前 RK809 硬件上会失败。**
-
-## 开发板 RTMP 推流与同时录像
-
-Ubuntu 编译：`sh scripts/build.sh -B`。部署新的 `bin/ipc_camera`、`configs/ipc-rtmp.conf`、`scripts/play_mp4.sh` 到板端 `/root/rk3568_ipc_camera/`。
-推流配置单独保存，原 `ipc.conf` 继续用于本地调试；新配置已填 `rtmp://192.168.137.100:1935/live/cam01`，48kHz 双声道。
-
-板端推流并保存 MP4（文件名须未存在）：
+先验证本地音视频录像，文件名须未存在：
 
 ```bash
-./ipc_camera --config ipc-rtmp.conf --record --stream --seconds 30 --encode-fps 25 --mp4 /root/rk3568_ipc_camera/record_rtmp_01.mp4
+sh scripts/run.sh --record --seconds 30 --encode-fps 25 --mp4 /userdata/record/trial_local_01.mp4
 echo $?
-sh ./play_mp4.sh /root/rk3568_ipc_camera/record_rtmp_01.mp4
+sh scripts/play_mp4.sh /userdata/record/trial_local_01.mp4
 ```
 
-在虚拟机另一个终端观看直播（推流运行期间执行）：
+然后推流并同时保存 MP4，要求 `configs/ipc-rtmp.conf` 中的 SRS 地址从开发板可达：
+
+```bash
+sh scripts/run.sh --config configs/ipc-rtmp.conf --record --stream --seconds 30 --encode-fps 25 --mp4 /userdata/record/trial_rtmp_01.mp4
+echo $?
+sh scripts/play_mp4.sh /userdata/record/trial_rtmp_01.mp4
+```
+
+推流运行期间，在虚拟机另一个终端观看直播：
 
 ```bash
 ffplay -i rtmp://192.168.137.100:1935/live/cam01
 ```
 
-只推流、不生成本地文件：
+只推流、不生成本地录像：
 
 ```bash
-./ipc_camera --config ipc-rtmp.conf --stream --seconds 30 --encode-fps 25
+sh scripts/run.sh --config configs/ipc-rtmp.conf --stream --seconds 30 --encode-fps 25
 ```
 
-`--seconds 0` 持续运行；Ctrl+C 正常收尾退出 130。双输出网络故障后本地继续录满，退出 3，日志明确区分；只推流失败退出 1。
-正常有限运行退出 0：RTMP `header=1 completed=1 error=0`，MP4 `trailer=1`，两路音视频包数分别闭合。
-程序不自动重连；恢复 SRS 后重新运行，并更换 MP4 文件名。网络写入成功不等于播放器已经播放。
+**保存的录像仍在开发板本地播放。** 网络直播观看和本地文件回放是两种用途。
+重复试用请更换输出文件名，程序拒绝覆盖已有媒体文件。`--seconds 0` 持续运行，Ctrl+C 请求有序停止。
+保留先前将程序、配置与播放脚本平铺到 `/root/rk3568_ipc_camera/` 的部署方式，旧命令见各阶段文档；上面的快捷流程使用工程原目录结构。
 
-模块、队列、子进程超时、故障测试和完整验收步骤见 [RTMP 推流与双输出说明](docs/08_RTMP推流与双输出说明.md)。
+## 工作模式与配置
 
-## 开发板音视频 MP4 录像
+| 模式 | 验证内容 | 主要输出参数 |
+| --- | --- | --- |
+| 默认或 `--check-config` | 只加载、校验配置，不访问采集设备或网络 | 无 |
+| `--capture` | NV12 视频采集及原始队列 | `--frames`、`--dump`、`--dump-frames` |
+| `--encode` | MPP H.264 独立编码 | `--frames`、`--encode-fps`、`--output` |
+| `--audio-capture` | PCM 独立采集 | `--seconds`、`--pcm` |
+| `--audio-encode` | AAC-LC / ADTS 独立编码 | `--seconds`、`--aac` |
+| `--record` | 音视频 MP4；RTMP 开关启用时同时推流 | `--seconds`、`--encode-fps`、`--mp4` |
+| `--stream` | 只推流；可与 `--record` 组合 | `--seconds`、`--encode-fps` |
 
-Ubuntu 使用 `sh scripts/build.sh -B` 编译并更新板端程序及 `play_mp4.sh`。
-在板端 `/root/rk3568_ipc_camera/` 下逐条运行，输出文件须不存在：
+`configs/ipc.conf` 默认禁用 RTMP，用于本地调试；`configs/ipc-rtmp.conf` 启用 `rtmp://192.168.137.100:1935/live/cam01`。
+地址为本实验局域网地址，其他使用者应修改为自己的 SRS 地址。
+独立 NV12/H.264/PCM/AAC 模式始终保留，调试命令与对应播放脚本见文档索引。
+配置中的视频目标帧率仍为 30；本板实测 25，所以示例显式使用 `--encode-fps 25`，该参数不强制摄像头改变采集帧率。
+
+正常双输出结束：MP4 `trailer=1`，RTMP `completed=1 error=0`，视频与音频包数分别闭合。
+
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | 有限运行完成，所选输出成功 |
+| 130 | 信号停止且正常收尾 |
+| 3 | RTMP 失败，但本地 MP4 完整收尾 |
+| 1 | 运行失败，或只推流模式下网络失败 |
+| 2 | 参数或模式组合错误 |
+
+## 从源码编译与更新可执行文件
+
+需要修改业务源码时，在 Ubuntu 工程根目录使用原 SDK：
 
 ```bash
-./ipc_camera --config ipc.conf --record --seconds 30 --encode-fps 25 --mp4 /root/rk3568_ipc_camera/record_av_01.mp4
-echo $?
-ffprobe -v error -show_entries stream=codec_name,width,height,sample_rate,channels,start_time,duration -show_entries format=duration -of default=noprint_wrappers=1 /root/rk3568_ipc_camera/record_av_01.mp4
-sh ./play_mp4.sh /root/rk3568_ipc_camera/record_av_01.mp4
+sh scripts/build.sh -B all queue-test
+file bin/ipc_camera bin/test_frame_queue
+(cd bin && sha256sum ipc_camera test_frame_queue > SHA256SUMS)
 ```
 
-预期一条 H.264 720p 视频和一条 AAC 48kHz 双声道音轨，开发板画面、声音正常。
-`video_enqueued=video_encoded=video_packets`，`video_eos=1 audio_drained=1 trailer=1`，退出码 0。
-录制时长从共同起点计算，保留设备启动偏差，不要求 30 秒恰好 750 帧。
-`--seconds 0` 持续运行，Ctrl+C 收尾成功后退出 130；MP4 文件仍可播放。
-`--mp4` 省略时使用 `output.record_path`，父目录需已经存在。
+默认 SDK 为 `$HOME/rk3568_linux_sdk`，可通过 `SDK_ROOT=/实际路径 sh scripts/build.sh -B all queue-test` 指定。
+正式编译使用 SDK 的 ARM64 编译器、头文件和动态库。修改源码后应同步更新二进制及校验值，并在板端复验。
 
-**独立调试入口继续保留**：MP4 没声音时先单独录 PCM 检查采集，再单独录 AAC 检查编码；
-两者正常后排查 MP4 与播放器。详细命令、线程/所有权、同步边界和 Git 提交见
-[音视频并行录像与 MP4 回放说明](docs/07_音视频并行录像与MP4回放说明.md)。
 
-## 开发板编码与本地播放
 
-每条命令分别执行；输出文件须不存在，重测请更换文件名：
+## 工程结构
 
-```bash
-cd /root/rk3568_ipc_camera
-chmod +x ipc_camera
-./ipc_camera --config ipc.conf --encode --frames 300 --encode-fps 25 --output /root/rk3568_ipc_camera/video_720p_25fps.h264
-echo $?
-sh /root/rk3568_ipc_camera/play_h264.sh /root/rk3568_ipc_camera/video_720p_25fps.h264
-```
+| 目录 | 职责 |
+| --- | --- |
+| `src/`、`include/` | 正式采集、编码、队列、时间戳、封装、网络及运行管理模块 |
+| `bin/` 根目录 | 可直接部署的 ARM64 主程序与队列测试程序、校验说明 |
+| `configs/` | 本地调试与 SRS 推流配置 |
+| `scripts/` | SDK 编译、板端启动及本地媒体回放 |
+| `tests/` | 主机模拟设备、故障注入与真实编码/封装检查 |
+| `docs/` | 各阶段说明、架构、部署和交付记录 |
+| `demo/` | 独立学习实验，仅供参考，不参与正式模块编译或调用 |
+| `shell/` | 已有环境检查和学习脚本 |
 
-正常无丢帧时应有 `submitted=encoded=300`、`eos=1`、退出码 0，视频约 12 秒。
-**播放仍在开发板屏幕上。** 脚本自动为本次 ffplay 设置已验证的 Wayland/SDL 环境，全屏播放一次并退出；
-再次观看请重新运行脚本，终端 Ctrl+C 或播放窗口 q 可提前退出。当前只有视频，无音频。
-不使用裸流循环 seek，避免板端 ffplay 反复输出 `error while seeking`。
+双采集、双编码、独立 MP4/RTMP 输出通过有界队列连接；编码包按独立引用分发。
+网络 AVIO 在受监督的子进程内运行，网络故障不会直接阻塞本地录像。生命周期与数据归属见架构文档。
 
-`--encode-fps 25` 配置码控和码流声明帧率，不强制改变摄像头帧率；默认值为 `video.fps`。
-`--frames 0` 连续运行，Ctrl+C 正常排空后返回 130。
-裸 H.264 不保留逐帧容器时间戳，原始队列丢帧时不能保持实际采集时间间隔。
+## 已完成能力
+- 正点原子 RK3568 开发板套件及配套 MIPI 摄像头的 V4L2 NV12 采集。
+- MPP H.264 硬件编码；ALSA PCM 采集与 FFmpeg AAC-LC 编码。
+- 独立 NV12、H.264、PCM、AAC 调试模式和开发板本地文件回放。
+- 音视频共同时间轴、原始数据与编码包有界队列、MP4 双轨录像。
+- FLV/RTMP 推送 SRS；编码一次、独立引用分发给网络和本地输出。
+- 网络故障隔离、受监督网络子进程和有序停止。
 
-完整的接口、所有权、异常处理、SDK 排查、板端解码计数和 Git 提交步骤见：
-[MPP 硬编码与板端回放说明](docs/04_MPP硬编码与板端回放说明.md)。
 
-## 开发板音频采集与本地回放
+## 验证状态与已知限制
 
-板端已确认录音设备 `hw:0,0`，支持声道范围 2..8，单声道设置失败。
-本次使用 48kHz、双声道、S16_LE，程序严格设置并读回参数，上一阶段已通过板端录音与听音验收。
-以下每条命令单独执行，录音期间对麦克风说话，输出文件须不存在：
+- 已验证板端原始采集、H.264、PCM、AAC、MP4 本地播放以及 SRS 推流完成。
+- 主机回归与故障注入的阶段结果见各模块文档。
+- 直播延时存在；杂音存在。
+- 初版未实现自动重连、录像分段、断电恢复或长期时钟漂移补偿。普通 MP4 依赖正常收尾写入索引。
+- 长时间稳定性、物理音画同步误差及尚无记录的板端故障场景保留为后续验证项。
 
-```bash
-cd /root/rk3568_ipc_camera
-./ipc_camera --config ipc.conf --audio-capture --seconds 10 --pcm /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm
-echo $?
-wc -c /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm
-sh ./play_pcm.sh /root/rk3568_ipc_camera/audio_48k_stereo_01.pcm 48000 2
-```
+## 文档索引
 
-预期四项 `*_samples` 均为 480000（每声道），文件 1920000 字节，`xruns=suspends=queue_full=0`，
-退出码 0，板端耳机/扬声器听到录制的声音。脚本默认 `plughw:0,0`，无需 Wayland 环境。
-`--seconds 0` 持续录音，Ctrl+C 有序排空后退出 130。上述独立调试模式互斥，同时录音录像请用 `--record`。
-录音溢出/队列满会报错停止，不静默丢样；`peak_ch0/peak_ch1` 可辅助排查全零或单侧无信号。
-完整说明见 [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)。
+- [初版交付与直接试用说明](docs/09_初版交付与直接试用说明.md)
+- [版本记录](CHANGELOG.md) / [预编译程序说明](bin/README.md)
+- [工程架构与实施流程](docs/RK3568_IPC初版工程设计与实施流程.md)
+- [01 配置与日志](docs/01_配置与日志模块实现说明.md)
+- [02 原始数据队列](docs/02_原始数据队列实现说明.md)
+- [03 V4L2 采集](docs/03_V4L2采集与队列接入说明.md)
+- [04 MPP H.264 与板端回放](docs/04_MPP硬编码与板端回放说明.md)
+- [05 ALSA PCM 与板端回放](docs/05_ALSA音频采集与板端回放说明.md)
+- [06 AAC 与板端回放](docs/06_AAC编码与板端回放说明.md)
+- [07 MP4 录像与板端回放](docs/07_音视频并行录像与MP4回放说明.md)
+- [08 RTMP 与双输出](docs/08_RTMP推流与双输出说明.md)
+- [虚拟机 SRS 部署](docs/虚拟机SRS服务器部署完整操作流程.md)
 
-## 开发板 AAC 编码与本地回放
-
-先在 Ubuntu 执行 `sh scripts/build.sh -B`，更新板端程序与 `play_aac.sh`。
-采集仍使用 `hw:0,0`、48000Hz、双声道、S16_LE；AAC-LC 目标码率 128000bit/s。
-每条命令分别执行，录音时对麦克风说话，新文件不得已存在：
-
-```bash
-./ipc_camera --config ipc.conf --audio-encode --seconds 10 --aac /root/rk3568_ipc_camera/audio_aac_01.aac
-echo $?
-ffprobe -v error -show_entries stream=codec_name,profile,sample_rate,channels -of default=noprint_wrappers=1 /root/rk3568_ipc_camera/audio_aac_01.aac
-sh ./play_aac.sh /root/rk3568_ipc_camera/audio_aac_01.aac
-```
-
-播放脚本在开发板解码为临时 WAV 后，用 `aplay -D plughw:0,0` 本地播放，结束清理临时文件，
-无需桌面/Wayland。长录音的临时 WAV 需要足够的 `TMPDIR` 空间。
-预期 `input_samples=converted_samples=480000`、`drained=1`，退出码 0，AAC-LC/48000Hz/2 声道，听音正常。
-`submitted_samples` 包含尾部补零；ADTS 不保存编码延迟裁剪信息，不能要求播放长度与输入严格相等。
-完整架构、统计语义、异常行为、测试方法见 [AAC 编码与板端回放说明](docs/06_AAC编码与板端回放说明.md)。
-
-## 保留的采集模式
-
-默认不传模式时只检查配置。`--capture` 保留原始采集验证，不运行编码：
-
-```bash
-./ipc_camera --config ipc.conf --capture --frames 300 --dump /root/rk3568_ipc_camera/capture_720p_new.nv12 --dump-frames 60
-```
-
-开发板本地播放原始 NV12：
-
-```bash
-XDG_RUNTIME_DIR=/run WAYLAND_DISPLAY=wayland-0 SDL_VIDEODRIVER=wayland SDL_RENDER_DRIVER=software ffplay -f rawvideo -pixel_format nv12 -video_size 1280x720 -framerate 25 -i /root/rk3568_ipc_camera/capture_720p_new.nv12 -loop 0 -fs
-```
-
-`--encode` 也可同时传 `--dump/--dump-frames`，但两种运行模式不能同时指定。
-
-## 主机测试
-
-```bash
-make host-test
-make host-encoder-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
-make host-audio-sanitize ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
-```
-
-覆盖配置、日志、队列、42 个模拟采集场景、59 个模拟编码集成场景、64 个模拟音频场景及编码/音频接口边界。
-模拟 MPP 使用 `tests/mpp_headers/` 下固定版本官方公开头文件；**正式构建不包含该目录**。
-主机模拟编码产物不可播放，也不能证明真实硬件性能。上述 sanitizer 命令关闭 LeakSanitizer，仅检查 ASan/UBSan。
-
-AAC 测试使用真实 FFmpeg 4.4.1 编码库，需主机开发依赖；`make host-aac-test` / `make host-aac-sanitize` 的参数和验证结果见第 06 号文档。
-
-RTMP 的 `host-rtmp-test` / `host-rtmp-sanitize` 覆盖双输出、网络失败隔离、无限阻塞和真实 RTMP/TCP 回环，参数见第 08 号文档。
-
-录像的 `host-record-test` / `host-record-sanitize` 使用真实 FFmpeg 4.4.1 和模拟设备，执行参数见第 07 号文档。
-
-只测某部分可运行 `make host-queue-test`、`make host-capture-test`、`make host-encoder-test`、`make host-audio-test`。
-`bin/host/`、`bin/encoder-mock/`、`bin/encoder-asan/` 以及 `bin/audio-mock/`、`bin/audio-asan/` 均不能部署到开发板。
-板端队列测试仍可通过 `sh scripts/build.sh all queue-test` 构建 `bin/test_frame_queue`，预期 9 项通过。
-
-## 配置和文档
-
-- 视频初版固定 1280×720 NV12/H.264；本阶段音频为 48000Hz 双声道 S16_LE，实际参数及声音由板端验收。
-- `audio.codec=aac`、`audio.bitrate=128000` 在 `--audio-encode` 模式实际用于编码；PCM 模式保持不变。
-- `ipc.conf` 保留 RTMP 默认关闭；`ipc-rtmp.conf` 启用真实 SRS 地址；`output.record_path` 是 `--record` 的默认路径，`--mp4` 可覆盖；独立 H.264 编码仍用 `--output`。
-- [ALSA 音频采集与板端回放](docs/05_ALSA音频采集与板端回放说明.md)
-- [MPP 硬编码与板端回放](docs/04_MPP硬编码与板端回放说明.md)
-- [V4L2 采集与队列接入](docs/03_V4L2采集与队列接入说明.md)
-- [原始数据队列](docs/02_原始数据队列实现说明.md)
-- [配置与日志](docs/01_配置与日志模块实现说明.md)
-- [工程设计](docs/RK3568_IPC初版工程设计与实施流程.md) / [骨架历史记录](docs/模块骨架说明.md)
-- `scripts/`：正式构建/启动/回放；`shell/`：已有环境检查；`demo/`：独立实验。
+基础主机测试为 `make host-test`；AAC、MP4 和 RTMP 测试还需要主机 FFmpeg 开发库，运行方法见对应阶段文档。
+历史阶段文档保留当时的实施顺序与待办描述，当前功能范围以本 README 和第 09 号说明为准。

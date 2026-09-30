@@ -7,7 +7,7 @@ SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 PROJECT_DIR=$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)
 PROGRAM="$PROJECT_DIR/bin/ipc_camera"
 CONFIG_FILE="$PROJECT_DIR/configs/ipc.conf"
-[ -x "$PROGRAM" ] || { printf '[ERROR] 请先编译并部署：%s\n' "$PROGRAM" >&2; exit 1; }
+[ -x "$PROGRAM" ] || { printf '[ERROR] 板端程序不存在或无执行权限：%s；请部署随包 bin 并执行 chmod +x bin/ipc_camera\n' "$PROGRAM" >&2; exit 1; }
 case "$(uname -m)" in
     aarch64|arm64) ;;
     *) printf '[ERROR] run.sh 面向 ARM64 开发板，本机检查请使用 make host-check。\n' >&2; exit 1 ;;
