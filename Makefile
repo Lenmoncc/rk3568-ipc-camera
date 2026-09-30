@@ -151,8 +151,10 @@ host-encoder-sanitize:
 	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 python3 tests/test_encoder.py ./bin/encoder-asan/ipc_camera_encoder_mock
 	ASAN_OPTIONS='$(ASAN_OPTIONS)' UBSAN_OPTIONS=halt_on_error=1 ./bin/encoder-asan/test_encoder_api configs/ipc.conf
 
+# bin 根目录的 ARM64 程序是随工程交付的版本文件，clean 只清理中间产物。
+# 主机测试使用 bin 子目录；不要将主机编译结果覆盖到正式 bin/ipc_camera。
 clean:
-	rm -rf build bin
+	rm -rf build
 
 -include $(DEPS) $(BUILD_DIR)/mock_mpp.d $(BUILD_DIR)/test_encoder_api.d
 
